@@ -16,7 +16,7 @@ public final class RobotApiRouter implements HttpHandler {
 
     private final SessionLease sessionLease;
     private final RouteStore routeStore;
-    private final ControlMailbox mailbox;
+    private final ControlGate controlGate;
     private final ExecutionStateStore executionState;
     private final RobotRuntimeStore runtimeStore;
     private final CommandCatalog commandCatalog;
@@ -24,13 +24,13 @@ public final class RobotApiRouter implements HttpHandler {
 
     public RobotApiRouter(SessionLease sessionLease,
                           RouteStore routeStore,
-                          ControlMailbox mailbox,
+                          ControlGate controlGate,
                           ExecutionStateStore executionState,
                           RobotRuntimeStore runtimeStore,
                           CommandCatalog commandCatalog) {
         this.sessionLease = sessionLease;
         this.routeStore = routeStore;
-        this.mailbox = mailbox;
+        this.controlGate = controlGate;
         this.executionState = executionState;
         this.runtimeStore = runtimeStore;
         this.commandCatalog = commandCatalog;
@@ -240,18 +240,6 @@ public final class RobotApiRouter implements HttpHandler {
     }
 
     private void handleExecutionRequest(HttpExchange exchange) throws Exception {
-        if (executionState.snapshot().state == ExecutionStateStore.State.NOT_READY) {
-            exchange.send(HttpResponse.json(
-                    503, "{\"error\":\"control_thread_not_ready\"}"));
-            return;
-        }
-        if (mailbox.hasPending()
-                || executionState.snapshot().state == ExecutionStateStore.State.RUNNING
-                || executionState.snapshot().state == ExecutionStateStore.State.QUEUED) {
-            exchange.send(HttpResponse.json(409, "{\"error\":\"robot_busy\"}"));
-            return;
-        }
-
         JSONObject body = new JSONObject(exchange.request.bodyUtf8());
         String type = body.optString("type", "");
         ControlRequest queued;
@@ -263,7 +251,7 @@ public final class RobotApiRouter implements HttpHandler {
                         404, "{\"error\":\"route_not_found\"}"));
                 return;
             }
-            queued = mailbox.offerSavedPath(path);
+            queued = controlGate.submitSavedPath(path);
             subject = path;
         } else if ("inline".equals(type)) {
             Object trajectory = body.opt("trajectory");
@@ -272,7 +260,7 @@ public final class RobotApiRouter implements HttpHandler {
                         400, "{\"error\":\"missing_trajectory\"}"));
                 return;
             }
-            queued = mailbox.offerInlinePath(
+            queued = controlGate.submitInlinePath(
                     trajectory instanceof String ? (String) trajectory : trajectory.toString());
             subject = "inline";
         } else {
@@ -282,26 +270,16 @@ public final class RobotApiRouter implements HttpHandler {
         }
 
         if (queued == null) {
-            exchange.send(HttpResponse.json(409, "{\"error\":\"mailbox_full\"}"));
+            exchange.send(HttpResponse.json(200,
+                    "{\"accepted\":false,\"dropped\":true,\"reason\":\"no_active_opmode\"}"));
             return;
         }
         executionState.publish(ExecutionStateStore.State.QUEUED, queued.id, subject);
         exchange.send(HttpResponse.json(
-                202, "{\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
+                202, "{\"accepted\":true,\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
     }
 
     private void handleCommand(HttpExchange exchange, String name) throws Exception {
-        if (executionState.snapshot().state == ExecutionStateStore.State.NOT_READY) {
-            exchange.send(HttpResponse.json(
-                    503, "{\"error\":\"control_thread_not_ready\"}"));
-            return;
-        }
-        if (mailbox.hasPending()
-                || executionState.snapshot().state == ExecutionStateStore.State.QUEUED
-                || executionState.snapshot().state == ExecutionStateStore.State.RUNNING) {
-            exchange.send(HttpResponse.json(409, "{\"error\":\"robot_busy\"}"));
-            return;
-        }
         boolean known = false;
         for (CommandCatalog.Descriptor descriptor : commandCatalog.list()) {
             if (descriptor.name.equals(name)) {
@@ -324,13 +302,14 @@ public final class RobotApiRouter implements HttpHandler {
             }
         }
 
-        ControlRequest queued = mailbox.offerCommand(name, args);
+        ControlRequest queued = controlGate.submitCommand(name, args);
         if (queued == null) {
-            exchange.send(HttpResponse.json(409, "{\"error\":\"mailbox_full\"}"));
+            exchange.send(HttpResponse.json(200,
+                    "{\"accepted\":false,\"dropped\":true,\"reason\":\"no_active_opmode\"}"));
             return;
         }
         exchange.send(HttpResponse.json(
-                202, "{\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
+                202, "{\"accepted\":true,\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
     }
 
     private static String sessionToken(HttpRequest request) {

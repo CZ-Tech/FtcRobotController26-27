@@ -154,7 +154,6 @@ public class HttpJsonService {
         }
     }
 
-    @OpModeRegistrar
     public static void initService(Context context, OpModeManager manager) {
         if (!isStarted) {
             appContext = context.getApplicationContext();

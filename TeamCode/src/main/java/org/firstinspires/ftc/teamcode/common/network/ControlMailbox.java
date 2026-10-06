@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Single-slot handoff from network workers to the future OpMode/main-thread consumer.
+ * Single-slot latest-wins handoff from network workers to the OpMode/main-thread consumer.
  *
  * <p>There is intentionally no background execution facility here. Producers can only
  * enqueue immutable data. The control thread must explicitly {@link #poll()} it.</p>
@@ -26,9 +26,10 @@ public final class ControlMailbox {
         return offer(ControlRequest.command(nextId.getAndIncrement(), name, args));
     }
 
-    /** Returns request on success, null when another request is already waiting. */
+    /** Always replaces any older unconsumed request. */
     private ControlRequest offer(ControlRequest request) {
-        return pending.compareAndSet(null, request) ? request : null;
+        pending.set(request);
+        return request;
     }
 
     /** Intended to be called by the robot control thread only. */
@@ -42,5 +43,9 @@ public final class ControlMailbox {
 
     public boolean hasPending() {
         return pending.get() != null;
+    }
+
+    public void clear() {
+        pending.set(null);
     }
 }

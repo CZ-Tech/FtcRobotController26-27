@@ -14,7 +14,6 @@ import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.hardware.GamepadEx;
 import org.firstinspires.ftc.teamcode.common.subsystem.Subsystem;
 import org.firstinspires.ftc.teamcode.common.util.Alliance;
-import org.firstinspires.ftc.teamcode.common.util.HttpJsonService;
 import org.firstinspires.ftc.teamcode.common.util.OpModeState;
 import org.firstinspires.ftc.teamcode.common.util.Pattern;
 
@@ -64,7 +63,6 @@ public class Robot {
 //        this.odo = hardwareMap.get(GoBildaPinpointDriver.class, Globals.odoName);
         this.odo = new MixedOdo(this);
 
-        HttpJsonService.setActiveRobot(this);
 
         this.vision = new Vision(this); //视觉模块
 //        this.visionLimelight = new VisionLimelight(this);

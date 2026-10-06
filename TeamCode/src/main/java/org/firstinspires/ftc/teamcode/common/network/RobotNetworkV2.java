@@ -18,6 +18,7 @@ public final class RobotNetworkV2 {
     public final SessionLease session = new SessionLease();
     public final RouteStore routes;
     public final ControlMailbox mailbox = new ControlMailbox();
+    public final ControlGate control = new ControlGate(mailbox);
     public final ExecutionStateStore execution = new ExecutionStateStore();
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
     public final CommandCatalog commands = new CommandCatalog();
@@ -31,7 +32,7 @@ public final class RobotNetworkV2 {
     public RobotNetworkV2(Context context, int port) {
         routes = new RouteStore(context);
         RobotApiRouter router = new RobotApiRouter(
-                session, routes, mailbox, execution, runtime, commands);
+                session, routes, control, execution, runtime, commands);
         server = new RobotHttpServer(port, router);
     }
 
