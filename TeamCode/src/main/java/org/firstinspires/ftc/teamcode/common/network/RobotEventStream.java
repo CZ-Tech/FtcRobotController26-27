@@ -5,12 +5,13 @@ import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Single-client SSE stream. Pose is latest-value data: old frames are never queued.
  */
 public final class RobotEventStream {
-    public static final long FRAME_PERIOD_MS = 16;
+    public static final long FRAME_PERIOD_NANOS = 1_000_000_000L / 60L;
     private static final long HEARTBEAT_MS = 1000;
 
     private final SessionLease sessionLease;
@@ -51,6 +52,7 @@ public final class RobotEventStream {
         boolean lastOpModeActive = false;
         String lastOpModeName = null;
         long lastHeartbeat = 0;
+        long nextFrameNanos = System.nanoTime();
 
         writeEvent(out, "hello", 0,
                 "{\"protocol\":2,\"poseHz\":60,\"sessionTimeoutMs\":"
@@ -100,12 +102,15 @@ public final class RobotEventStream {
                 lastHeartbeat = now;
             }
 
-            try {
-                Thread.sleep(FRAME_PERIOD_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+            nextFrameNanos += FRAME_PERIOD_NANOS;
+            long remaining = nextFrameNanos - System.nanoTime();
+            if (remaining > 0) {
+                LockSupport.parkNanos(remaining);
+            } else if (remaining < -FRAME_PERIOD_NANOS * 4) {
+                // Do not try to replay missed frames after a long network stall.
+                nextFrameNanos = System.nanoTime();
             }
+            if (Thread.currentThread().isInterrupted()) return;
         }
     }
 
