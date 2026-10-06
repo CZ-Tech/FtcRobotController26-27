@@ -3,100 +3,164 @@ package org.firstinspires.ftc.teamcode.opmode.auto;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
-import org.firstinspires.ftc.teamcode.common.command.auto.PinpointTrajectory;
-import org.firstinspires.ftc.teamcode.common.command.auto.TrajectoryLoader;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
-import org.firstinspires.ftc.teamcode.common.util.HttpJsonService;
+import org.firstinspires.ftc.teamcode.common.network.ControlRequest;
+import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
+import org.firstinspires.ftc.teamcode.common.network.RobotNetworkService;
+import org.firstinspires.ftc.teamcode.common.network.RobotNetworkV2;
+import org.firstinspires.ftc.teamcode.common.network.RouteStore;
 
 /**
- * 空白等待自动 OpMode，初始化所有硬件后进入空闲循环，
- * 通过 {@link HttpJsonService} 的 HTTP 端点接受路径执行命令。
+ * Network-controlled autonomous OpMode.
  *
- * <p>该 OpMode 自身不执行任何轨迹，所有路径执行均通过 HTTP API 触发：</p>
- * <ul>
- *   <li>{@code POST /run/saved/{pathName}} — 执行已保存的路径</li>
- *   <li>{@code POST /run/temp} — 执行请求体中的临时路径（不保存）</li>
- * </ul>
- *
- * <h3>状态机</h3>
- * <pre>
- *   初始化硬件 → waitForStart → executionReady=true
- *     → 空闲循环 [检查 pendingExecution → 执行路径 → 重复]
- *     → 停止时: executionReady=false, stopAndClearAll()
- * </pre>
+ * <p>All hardware access remains on this OpMode thread. Network workers can only replace
+ * the latest data-only {@link ControlRequest}. Trajectory execution is cooperative:
+ * exactly one loader/tracker tick is performed per OpMode loop.</p>
  */
 @Autonomous(name = "HttpAuto", group = "HTTP")
 public class HttpAuto extends LinearOpMode {
 
+    private static final String OPMODE_NAME = "HttpAuto";
+
     @Override
     public void runOpMode() {
-        // --- 阶段 1: 硬件初始化（照抄 JsonPathOpMode） ---
         Robot robot = new Robot();
         robot.init(this);
-
-        // 扫描对象树使 @AutoTask 命令可用，并设置 OpMode 名称以便 AzConductor 检测
-        HttpJsonService.scanObjectTree(robot);
-        HttpJsonService.setActiveOpModeName("HttpAuto");
-
         MixedOdo.isPoseInitialized = true;
 
-        PinpointTrajectory trajectory = new PinpointTrajectory(robot);
+        RobotNetworkV2 network = RobotNetworkService.get();
+        SplineTracker tracker = new SplineTracker(robot);
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
 
-        telemetry.addData("Status", "已初始化，等待开始");
+        telemetry.addData("Status", "initialized; waiting for start");
+        telemetry.addData("Network", "V2 :8888");
         telemetry.update();
 
-        // --- 阶段 2: 等待开始按钮 ---
         waitForStart();
-
         if (!opModeIsActive()) {
-            TaskLoopFrame.stopAndClearAll();
+            publishInactive(network, robot);
             return;
         }
 
-        // --- 阶段 3: 空闲循环，接受 HTTP 路径执行命令 ---
-        HttpJsonService.setExecutionReady(true);
+        network.control.activate();
+        network.execution.publish(ExecutionStateStore.State.IDLE, 0, null);
 
-        telemetry.addData("Status", "就绪，等待 HTTP 路径命令 (端口 8888)");
-        telemetry.update();
+        long activeRequestId = 0;
+        String activeSubject = null;
 
-        while (opModeIsActive()) {
-            if (HttpJsonService.hasPendingExecution()) {
-                String json = HttpJsonService.getPendingPathJson();
-                HttpJsonService.clearPendingExecution();
+        try {
+            while (opModeIsActive()) {
+                ControlRequest request = network.control.pollLatest();
+                if (request != null) {
+                    switch (request.type) {
+                        case EXECUTE_SAVED_PATH: {
+                            RouteStore.Entry route = network.routes.get(request.pathName);
+                            if (route != null) {
+                                SplineTrajectoryLoader.ExecutionResult started =
+                                        loader.start(route.json);
+                                activeRequestId = request.id;
+                                activeSubject = request.pathName;
+                                network.execution.publish(
+                                        started.running()
+                                                ? ExecutionStateStore.State.RUNNING
+                                                : ExecutionStateStore.State.IDLE,
+                                        activeRequestId,
+                                        activeSubject);
+                            } else {
+                                network.execution.publish(
+                                        ExecutionStateStore.State.IDLE,
+                                        request.id,
+                                        request.pathName);
+                            }
+                            break;
+                        }
 
-                if (json != null && !json.isEmpty()) {
-                    telemetry.addData("Status", "正在执行路径...");
-                    telemetry.update();
+                        case EXECUTE_INLINE_PATH:
+                            SplineTrajectoryLoader.ExecutionResult started =
+                                    loader.start(request.inlineJson);
+                            activeRequestId = request.id;
+                            activeSubject = "inline";
+                            network.execution.publish(
+                                    started.running()
+                                            ? ExecutionStateStore.State.RUNNING
+                                            : ExecutionStateStore.State.IDLE,
+                                    activeRequestId,
+                                    activeSubject);
+                            break;
 
-                    try {
-                        // TrajectoryLoader.execute() 会阻塞直到路径完成
-                        // 或者在 opModeIsActive() 返回 false 时退出
-                        new TrajectoryLoader(trajectory).execute(json);
-                    } catch (Exception e) {
-                        telemetry.addData("Error", e.getMessage());
-                        telemetry.update();
+                        case RUN_COMMAND:
+                            // Intentionally not wired yet. Existing @AutoTask methods still
+                            // contain blocking waits/loops and therefore are not safe to invoke
+                            // from the cooperative OpMode loop.
+                            network.execution.publish(
+                                    ExecutionStateStore.State.IDLE,
+                                    request.id,
+                                    request.commandName);
+                            break;
+                    }
+                }
+
+                if (loader.isRunning()) {
+                    loader.update();
+
+                    // Consume trajectory events immediately so they can never accumulate.
+                    // Command/marker hardware dispatch will be wired after commands themselves
+                    // are converted to non-blocking state machines.
+                    while (loader.pollEvent() != null) {
+                        // no-op by design for this phase
                     }
 
-                    // 路径完成后停止残余运动
-                    robot.odoDrivetrain.driveRobotFieldCentric(0, 0, 0);
-
-                    // 等待异步任务（射击、传送等）完成
-                    TaskLoopFrame.joinAllTask(30000);
-
-                    telemetry.addData("Status", "就绪，等待 HTTP 路径命令 (端口 8888)");
-                    telemetry.update();
+                    if (!loader.isRunning()) {
+                        network.execution.publish(
+                                ExecutionStateStore.State.IDLE,
+                                activeRequestId,
+                                activeSubject);
+                    }
                 }
+
+                robot.odo.update();
+                Pose2D pose = robot.odo.getPosition();
+                network.runtime.publish(
+                        true,
+                        OPMODE_NAME,
+                        pose.getX(DistanceUnit.INCH),
+                        pose.getY(DistanceUnit.INCH),
+                        pose.getHeading(AngleUnit.DEGREES));
+
+                telemetry.addData("HTTP", "V2 active");
+                telemetry.addData("Execution", network.execution.snapshot().state);
+                telemetry.addData("Frame", loader.getCurrentFrameIndex());
+                telemetry.update();
+
+                idle();
             }
-
-            // 休眠 50ms，避免忙等待
-            Robot.sleep(50);
+        } finally {
+            loader.cancel();
+            tracker.stopMotor();
+            network.control.deactivate();
+            network.execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
+            publishInactive(network, robot);
         }
+    }
 
-        // --- 阶段 4: 停止 ---
-        HttpJsonService.setExecutionReady(false);
-        HttpJsonService.setActiveOpModeName(null);
-        TaskLoopFrame.stopAndClearAll();
+    private static void publishInactive(RobotNetworkV2 network, Robot robot) {
+        try {
+            robot.odo.update();
+            Pose2D pose = robot.odo.getPosition();
+            network.runtime.publish(
+                    false,
+                    null,
+                    pose.getX(DistanceUnit.INCH),
+                    pose.getY(DistanceUnit.INCH),
+                    pose.getHeading(AngleUnit.DEGREES));
+        } catch (Exception ignored) {
+            network.runtime.publish(false, null, 0, 0, 0);
+        }
     }
 }
