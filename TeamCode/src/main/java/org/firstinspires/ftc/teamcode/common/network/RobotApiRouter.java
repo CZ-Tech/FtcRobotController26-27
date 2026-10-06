@@ -296,6 +296,12 @@ public final class RobotApiRouter implements HttpHandler {
                     503, "{\"error\":\"control_thread_not_ready\"}"));
             return;
         }
+        if (mailbox.hasPending()
+                || executionState.snapshot().state == ExecutionStateStore.State.QUEUED
+                || executionState.snapshot().state == ExecutionStateStore.State.RUNNING) {
+            exchange.send(HttpResponse.json(409, "{\"error\":\"robot_busy\"}"));
+            return;
+        }
         boolean known = false;
         for (CommandCatalog.Descriptor descriptor : commandCatalog.list()) {
             if (descriptor.name.equals(name)) {

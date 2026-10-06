@@ -47,6 +47,7 @@ public final class RobotEventStream {
         long lastExecutionRevision = -1;
         long lastRouteRevision = -1;
         long lastCommandRevision = -1;
+        boolean runtimeSent = false;
         boolean lastOpModeActive = false;
         String lastOpModeName = null;
         long lastHeartbeat = 0;
@@ -65,9 +66,11 @@ public final class RobotEventStream {
                 lastPoseSeq = runtime.sequence;
             }
 
-            if (runtime.opModeActive != lastOpModeActive
+            if (!runtimeSent
+                    || runtime.opModeActive != lastOpModeActive
                     || !same(runtime.opModeName, lastOpModeName)) {
                 writeEvent(out, "runtime", runtime.sequence, runtime.runtimeJson());
+                runtimeSent = true;
                 lastOpModeActive = runtime.opModeActive;
                 lastOpModeName = runtime.opModeName;
             }
