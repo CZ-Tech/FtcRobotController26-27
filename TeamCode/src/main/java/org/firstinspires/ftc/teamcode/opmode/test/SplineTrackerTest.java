@@ -5,18 +5,22 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 
-/**
- * A simple auto OpMode that drives a rectangular path using {@link SplineTracker}
- * to exercise spline following, heading control, and waypoint callbacks.
- *
- * <p>Path: forward → strafe right → turn 90° → forward → stop.</p>
- */
-
+/** Manual field test for the non-blocking spline follower. */
 @Autonomous(name = "SplineTrackerTest", group = "Test")
 public class SplineTrackerTest extends LinearOpMode {
+
+    private static final String TEST_PATH =
+            "["
+                    + "{\"x\":0,\"y\":0,\"dx\":1,\"dy\":0,\"heading\":0,\"marker\":\"start\"},"
+                    + "{\"x\":24,\"y\":0,\"dx\":1,\"dy\":0,\"heading\":0,\"marker\":\"A\"},"
+                    + "{\"x\":24,\"y\":24,\"dx\":0,\"dy\":1,\"heading\":0,\"marker\":\"B\"},"
+                    + "{\"x\":24,\"y\":24,\"dx\":0,\"dy\":0,\"heading\":90,\"marker\":\"C\"},"
+                    + "{\"x\":0,\"y\":24,\"dx\":-1,\"dy\":0,\"heading\":90,\"marker\":\"D\"},"
+                    + "{\"x\":0,\"y\":0,\"dx\":0,\"dy\":-1,\"heading\":0,\"marker\":\"E\"}"
+                    + "]";
 
     @Override
     public void runOpMode() {
@@ -24,33 +28,33 @@ public class SplineTrackerTest extends LinearOpMode {
         robot.init(this);
 
         SplineTracker tracker = new SplineTracker(robot);
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
 
         telemetry.addData("Status", "Ready. DEBUG=" + Globals.DEBUG);
         telemetry.update();
 
-        robot.odo.resetPosAndIMU();
-
         waitForStart();
         if (!opModeIsActive()) return;
 
-        // ── Drive a simple rectangular path ──────────────────────────
-        tracker
-            .startMove(0, 0)                                         // 起点
-            .addPoint(24,  0,  1, 0,  0,  () -> log("A: forward done"))
-            .addPoint(24, 24,  0, 1,  0,  () -> log("B: strafe done"))
-            .addPoint(24, 24,  0, 0, 90,  () -> log("C: turn to 90°"))
-            .addPoint(0,  24, -1, 0, 90,  () -> log("D: back done"))
-            .addPoint(0,   0,  0,-1,  0,  () -> log("E: return to start"))
-            .stopMotor();
+        loader.start(TEST_PATH);
 
-        log("Path complete. Stopped.");
-        robot.waitFor(2000);
+        while (opModeIsActive() && loader.isRunning()) {
+            loader.update();
 
-        TaskLoopFrame.stopAndClearAll();
-    }
+            SplineTrajectoryLoader.TrajectoryEvent event;
+            while ((event = loader.pollEvent()) != null) {
+                if (event.marker != null) {
+                    telemetry.addData("Waypoint", event.marker);
+                }
+            }
 
-    private void log(String msg) {
-        telemetry.addData("Waypoint", msg);
-        telemetry.update();
+            telemetry.addData("State", loader.getStatus());
+            telemetry.addData("Frame", loader.getCurrentFrameIndex());
+            telemetry.update();
+            idle();
+        }
+
+        loader.cancel();
+        robot.odoDrivetrain.stopMotor();
     }
 }

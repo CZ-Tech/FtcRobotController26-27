@@ -6,7 +6,6 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 // 旧方案（时间驱动 P 控制器）：
@@ -67,6 +66,7 @@ public class AzConductorDebug extends LinearOpMode {
 
         // 新方案（位置驱动，牛顿法最近点 + 加速度前馈）：
         SplineTracker tracker = new SplineTracker(robot);
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
         // 旧方案（时间驱动 P 控制器）：
         // PinpointTrajectory trajectory = new PinpointTrajectory(robot);
 
@@ -81,7 +81,6 @@ public class AzConductorDebug extends LinearOpMode {
         if (!opModeIsActive()) {
             HttpJsonService.setExecutionReady(false);
             HttpJsonService.setActiveOpModeName(null);
-            TaskLoopFrame.stopAndClearAll();
             return;
         }
 
@@ -102,34 +101,27 @@ public class AzConductorDebug extends LinearOpMode {
                     Log.i("auto", json);
 
                     try {
-                        // 新方案：SplineTrajectoryLoader.execute()
-                        new SplineTrajectoryLoader(tracker).execute(json);
-                        // 旧方案：
-                        // new TrajectoryLoader(trajectory).execute(json);
+                        loader.start(json);
                     } catch (Exception e) {
                         telemetry.addData("Error", e.getMessage());
                         telemetry.update();
                     }
-
-                    // 路径完成后停止残余运动
-                    robot.odoDrivetrain.driveRobotFieldCentric(0, 0, 0);
-
-                    // 等待残留异步任务完成（默认已阻塞执行，仅 ASYNC_TASKS=true 时才有残余）
-                    TaskLoopFrame.joinAllTask(5000);
-
-                    telemetry.addData("Status", "就绪，等待 HTTP 路径命令 (端口 8888)");
-                    telemetry.addData("可用端点", "/status, /position, /run/saved/*, /run/temp, /commands/run/*");
-                    telemetry.update();
                 }
             }
 
-            // 休眠 50ms，避免忙等待
-            Robot.sleep(50);
+            if (loader.isRunning()) {
+                loader.update();
+                while (loader.pollEvent() != null) {
+                    // Old debug HTTP path only follows motion for now.
+                }
+            }
+
+            idle();
         }
 
         // --- 阶段 4: 停止 ---
         HttpJsonService.setExecutionReady(false);
         HttpJsonService.setActiveOpModeName(null);
-        TaskLoopFrame.stopAndClearAll();
+        loader.cancel();
     }
 }

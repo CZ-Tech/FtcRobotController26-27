@@ -11,8 +11,6 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
-import org.firstinspires.ftc.teamcode.common.command.PathTimeline;
 
 /**
  * Spatial spline follower.
@@ -33,7 +31,7 @@ import org.firstinspires.ftc.teamcode.common.command.PathTimeline;
  *
  * <p>其中 dx/dy 仍然只是 Hermite 几何切线参数，不代表物理速度。</p>
  */
-public class SplineTracker {
+public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     /**
      * Immutable geometric waypoint used by the preferred API.
      * dx/dy are Hermite tangent parameters, not physical velocity.
@@ -61,9 +59,6 @@ public class SplineTracker {
         }
     }
 
-    public static boolean DEBUG_RUN_FUNC = true;
-    public static boolean DO_NOT_RUN_FUNC = false;
-    public static boolean ASYNC_TASKS = false;
     public static boolean LOG_VERBOSE = false;
 
     // ---------------------------------------------------------------------
@@ -73,7 +68,6 @@ public class SplineTracker {
     public double lx, ly, ldx, ldy;
     public double x, y, dx, dy;
     public double heading, preH;
-    public Runnable fn;
 
     // ---------------------------------------------------------------------
     // Main tuning knobs
@@ -159,42 +153,11 @@ public class SplineTracker {
     public static double STALL_PROGRESS_EPS_IN = 0.08;
     public static double STALL_END_ERROR_EPS_IN = 0.05;
 
-    /** By default a stalled segment does not run its endpoint callback. */
-    public static boolean RUN_TASK_ON_STALL = false;
-
     // ---------------------------------------------------------------------
     // Optional voltage compensation (closed-loop control generally needs little)
     // ---------------------------------------------------------------------
     public static double motorVoltage = 12.0;
     public static double VOLTAGE_COMP_WEIGHT = 0.0;
-
-    // ---------------------------------------------------------------------
-    // Legacy compatibility fields. They no longer drive the follower.
-    // Keeping them reduces changes needed in existing autonomous/config code.
-    // ---------------------------------------------------------------------
-    @Deprecated public static int DERIVATIVE_SAMPLE_COUNT = ARC_SAMPLES;
-    @Deprecated public static int SAMPLE_COUNT = PROJECTION_SAMPLES;
-    @Deprecated public static int TIME_MAP_SAMPLES = ARC_SAMPLES;
-    @Deprecated public static double MAX_ACCEL = 50.0;
-    @Deprecated public static double LOOKAHEAD_MS = 0.0;
-    @Deprecated public static boolean USE_PROGRESS_CLOCK = false;
-    @Deprecated public static double SCHED_V_MAX = MAX_TANGENTIAL_VEL;
-    @Deprecated public static double SCHED_A_MAX = 50.0;
-    @Deprecated public static double SCHED_CAP_FLOOR = 2.0;
-    @Deprecated public static double SCHED_A_LAT = 0.0;
-    @Deprecated public static double SCHED_TARGET_TIME_S = 0.0;
-    @Deprecated public static int SCHED_TANGENT_MODE = 0;
-    @Deprecated public static double SCHED_HYBRID_LEAD_S = 0.0;
-
-    // Old per-axis position PID knobs retained only so existing Dashboard/config code compiles.
-    // They are intentionally not used by the new tangent/cross-track controller.
-    @Deprecated public static double K_POS_P = 0.7;
-    @Deprecated public static double K_POS_I = 0.6;
-    @Deprecated public static double K_POS_D = 0.07;
-    @Deprecated public static double POS_I_MAX = 0.5;
-    @Deprecated public static double POS_D_ALPHA = 0.9;
-    @Deprecated public static double POS_I_WINDOW = 10.0;
-    @Deprecated public static double POS_DEAD_ZONE = 0.0;
 
     public enum SegmentStatus {
         IDLE,
@@ -230,7 +193,6 @@ public class SplineTracker {
         }
     }
 
-    public final ElapsedTime runtime = new ElapsedTime();
     private final Robot robot;
 
     private double gotoX, gotoY, gotoH;
@@ -243,6 +205,28 @@ public class SplineTracker {
     private final PIDState crossPID = new PIDState();
 
     private final ElapsedTime stallTimer = new ElapsedTime();
+
+    // ---------------------------------------------------------------------
+    // Non-blocking active-segment state
+    // ---------------------------------------------------------------------
+
+    private double[] activeSplineX;
+    private double[] activeSplineY;
+    private double[] activeSplineH;
+    private ArcTable activeArc;
+    private double activeUnwrappedHeading;
+    private boolean activeHeadingOnly;
+
+    private double prevRx;
+    private double prevRy;
+    private double prevLoopTime;
+    private double filteredVx;
+    private double filteredVy;
+
+    private double closestU;
+    private double progressS;
+    private double stallLastProgressS;
+    private double bestEndError = Double.POSITIVE_INFINITY;
 
     private static class PIDState {
         double integral;
@@ -489,7 +473,7 @@ public class SplineTracker {
     }
 
     // ---------------------------------------------------------------------
-    // Initialization / compatibility
+    // Initialization
     // ---------------------------------------------------------------------
     public SplineTracker(Robot robot) {
         this.robot = robot;
@@ -509,405 +493,338 @@ public class SplineTracker {
     }
 
     // ---------------------------------------------------------------------
-    // Preferred segment-oriented API
+    // Tick-based MotionDriver API
     // ---------------------------------------------------------------------
 
-    /**
-     * Begin a path at an explicit pose. The first point defines path geometry and
-     * does not itself command a movement segment.
-     */
+    @Override
     public void begin(Pose2D pose, PathPoint start) {
         if (pose == null) throw new IllegalArgumentException("pose == null");
         if (start == null) throw new IllegalArgumentException("start == null");
 
         setPose(pose);
-        startMove(start.x, start.y, start.dx, start.dy);
+        this.startPoint = new double[]{start.x, start.y, start.dx, start.dy};
+        this.lx = start.x;
+        this.ly = start.y;
+        this.ldx = start.dx;
+        this.ldy = start.dy;
+        this.x = start.x;
+        this.y = start.y;
+        this.dx = start.dx;
+        this.dy = start.dy;
         this.heading = start.heading;
         this.preH = start.heading;
-        this.lastResult = new SegmentResult(SegmentStatus.IDLE, 0, 0);
-    }
-
-    /** Execute one Hermite path segment and return its completion state. */
-    public SegmentResult followTo(PathPoint target) {
-        if (target == null) throw new IllegalArgumentException("target == null");
-
-        addPoint(target.x, target.y, target.dx, target.dy, target.heading);
-
-        double positionError = Math.hypot(target.x - getX(), target.y - getY());
-        double headingError = angleDiff(target.heading, getHeading());
-        lastResult = new SegmentResult(lastSegmentStatus, positionError, headingError);
-        return lastResult;
-    }
-
-    /** Rotate in place using the same heading controller used by path following. */
-    public SegmentResult turnTo(double targetHeading) {
-        addHeading(targetHeading);
-
-        double headingError = angleDiff(targetHeading, getHeading());
-        lastResult = new SegmentResult(lastSegmentStatus, 0, headingError);
-        return lastResult;
-    }
-
-    /**
-     * Hold translation for a fixed duration while maintaining the current heading.
-     * Waiting is intentionally time-based; path following itself is not.
-     */
-    public SegmentResult hold(double seconds) {
-        lastSegmentStatus = SegmentStatus.RUNNING;
-        addTime(Math.max(0, seconds));
-        lastSegmentStatus = robot.opMode.opModeIsActive()
-                ? SegmentStatus.ARRIVED
-                : SegmentStatus.ABORTED;
-
-        double headingError = angleDiff(this.heading, getHeading());
-        lastResult = new SegmentResult(lastSegmentStatus, 0, headingError);
-        return lastResult;
-    }
-
-    public void stop() {
-        stopMotor();
-    }
-
-    public Pose2D getPose() {
-        return getPosition();
-    }
-
-    public SegmentResult getLastResult() {
-        return lastResult;
-    }
-
-    /**
-     * Legacy no-op. This follower is intentionally independent of PathTimeline.
-     * Kept so existing loader/autonomous code can compile with minimal changes.
-     */
-    @Deprecated
-    public SplineTracker setTimeline(PathTimeline ignored) {
-        return this;
-    }
-
-    /** Legacy no-op. Spatial follower no longer consumes schedule parameters. */
-    @Deprecated
-    public static void applyScheduleConfig() {
-        // no-op by design
-    }
-
-    // ---------------------------------------------------------------------
-    // Start robot
-    // ---------------------------------------------------------------------
-    public SplineTracker startMove() {
-        return this.startMove(0, 0, 0, 0, () -> {});
-    }
-
-    public SplineTracker startMove(Runnable fn) {
-        return this.startMove(0, 0, 0, 0, fn);
-    }
-
-    public SplineTracker startMove(double x, double y) {
-        return this.startMove(x, y, 0, 0, () -> {});
-    }
-
-    public SplineTracker startMove(double x, double y, Runnable fn) {
-        return this.startMove(x, y, 0, 0, fn);
-    }
-
-    public SplineTracker startMove(double x, double y, double dx, double dy) {
-        return this.startMove(x, y, dx, dy, () -> {});
-    }
-
-    public SplineTracker startMove(double[] point) {
-        return this.startMove(point[0], point[1], point[2], point[3]);
-    }
-
-    public SplineTracker startMove(double x, double y, double dx, double dy, Runnable fn) {
-        startPoint = new double[]{x, y, dx, dy};
-        this.x = x;
-        this.y = y;
-        this.dx = dx;
-        this.dy = dy;
-        this.fn = fn;
         this.segmentIndex = -1;
         this.lastSegmentStatus = SegmentStatus.IDLE;
-
-        if ((!Globals.DEBUG || DEBUG_RUN_FUNC) && !DO_NOT_RUN_FUNC) {
-            executeTask("startMove[0]", fn);
-        }
-
-        this.heading = getHeading();
-        this.preH = getHeading();
-        runtime.reset();
-        return this;
+        this.lastResult = new SegmentResult(SegmentStatus.IDLE, 0, 0);
+        clearActiveSegment();
     }
 
-    // ---------------------------------------------------------------------
-    // Control
-    // ---------------------------------------------------------------------
-    public SplineTracker stopMotor() {
-        robot.odoDrivetrain.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        robot.odoDrivetrain.stopMotor();
-        return this;
-    }
+    /**
+     * Prepare one Hermite segment. No motor output is produced here.
+     */
+    @Override
+    public void startMove(PathPoint target) {
+        if (target == null) throw new IllegalArgumentException("target == null");
 
-    public SplineTracker addPoint(double x, double y, double dx, double dy) {
-        return this.addPoint(x, y, dx, dy, () -> {});
-    }
+        if (lastSegmentStatus == SegmentStatus.RUNNING) cancel();
 
-    public SplineTracker addPoint(double x, double y, double dx, double dy, Runnable fn) {
-        return this.addPoint(x, y, dx, dy, this.heading, fn);
-    }
-
-    public SplineTracker addPoint(double x, double y, double dx, double dy, double heading) {
-        return this.addPoint(x, y, dx, dy, heading, () -> {});
-    }
-
-    public SplineTracker addPoint(double x, double y, double dx, double dy,
-                                  double heading, Runnable fn) {
-        // Save segment start.
         this.lx = this.x;
         this.ly = this.y;
         this.ldx = this.dx;
         this.ldy = this.dy;
-
-        // Save segment end.
-        this.x = x;
-        this.y = y;
-        this.dx = dx;
-        this.dy = dy;
-        this.fn = fn;
+        this.x = target.x;
+        this.y = target.y;
+        this.dx = target.dx;
+        this.dy = target.dy;
         this.segmentIndex++;
 
-        double[] splineX = spline_fit(this.lx, this.ldx, this.x, this.dx);
-        double[] splineY = spline_fit(this.ly, this.ldy, this.y, this.dy);
+        activeSplineX = spline_fit(this.lx, this.ldx, this.x, this.dx);
+        activeSplineY = spline_fit(this.ly, this.ldy, this.y, this.dy);
 
-        // Shortest-path unwrap for heading spline.
-        double unwrappedHeading = heading;
-        double hDiff = heading - this.heading;
+        activeUnwrappedHeading = target.heading;
+        double hDiff = target.heading - this.heading;
         while (hDiff > 180) {
-            unwrappedHeading -= 360;
+            activeUnwrappedHeading -= 360;
             hDiff -= 360;
         }
         while (hDiff <= -180) {
-            unwrappedHeading += 360;
+            activeUnwrappedHeading += 360;
             hDiff += 360;
         }
-        double[] splineH = spline_fit(this.heading, 0, unwrappedHeading, 0);
-
-        ArcTable arc = buildArcTable(splineX, splineY);
+        activeSplineH = spline_fit(this.heading, 0, activeUnwrappedHeading, 0);
+        activeArc = buildArcTable(activeSplineX, activeSplineY);
 
         velPID.reset();
         crossPID.reset();
         stallTimer.reset();
         lastSegmentStatus = SegmentStatus.RUNNING;
+        activeHeadingOnly = activeArc.total < DEGENERATE_ARC_THRESHOLD;
 
-        // Zero-length path segment: treat as heading-only command.
-        if (arc.total < DEGENERATE_ARC_THRESHOLD) {
-            runHeadingOnly(unwrappedHeading);
-            this.heading = unwrappedHeading;
-            this.preH = unwrappedHeading;
-            finishSegmentTask(fn);
-            return this;
+        robot.odo.update();
+        prevRx = getX();
+        prevRy = getY();
+        prevLoopTime = System.nanoTime() / 1e9;
+        filteredVx = 0;
+        filteredVy = 0;
+        closestU = 0;
+        progressS = 0;
+        stallLastProgressS = 0;
+        bestEndError = Double.POSITIVE_INFINITY;
+        lastResult = new SegmentResult(SegmentStatus.RUNNING, Double.NaN, Double.NaN);
+    }
+
+    /**
+     * Execute exactly one control iteration.
+     */
+    @Override
+    public SegmentResult update() {
+        if (lastSegmentStatus != SegmentStatus.RUNNING) return lastResult;
+
+        if (!robot.opMode.opModeIsActive()) {
+            lastSegmentStatus = SegmentStatus.ABORTED;
+            lastResult = snapshotResult(lastSegmentStatus);
+            clearActiveSegment();
+            return lastResult;
+        }
+
+        if (activeHeadingOnly) {
+            return updateHeadingOnly();
         }
 
         robot.odo.update();
-        double prevRx = getX();
-        double prevRy = getY();
-        double prevLoopTime = System.nanoTime() / 1e9;
-        double filteredVx = 0;
-        double filteredVy = 0;
 
-        double closestU = 0;
-        double progressS = 0;
-        double stallLastProgressS = 0;
-        double bestEndError = Double.POSITIVE_INFINITY;
+        double now = System.nanoTime() / 1e9;
+        double dt = now - prevLoopTime;
+        if (dt <= 1e-5 || dt > 0.25) dt = 0.02;
+        prevLoopTime = now;
 
-        while (robot.opMode.opModeIsActive()) {
-            robot.odo.update();
+        double rx = getX();
+        double ry = getY();
+        double curH = getHeading();
 
-            double now = System.nanoTime() / 1e9;
-            double dt = now - prevLoopTime;
-            if (dt <= 1e-5 || dt > 0.25) dt = 0.02;
-            prevLoopTime = now;
+        double rawVx = (rx - prevRx) / dt;
+        double rawVy = (ry - prevRy) / dt;
+        prevRx = rx;
+        prevRy = ry;
 
-            double rx = getX();
-            double ry = getY();
-            double curH = getHeading();
+        double velAlpha = clip01(VELOCITY_FILTER_ALPHA);
+        filteredVx = velAlpha * rawVx + (1 - velAlpha) * filteredVx;
+        filteredVy = velAlpha * rawVy + (1 - velAlpha) * filteredVy;
 
-            // Odometry-derived field velocity.
-            double rawVx = (rx - prevRx) / dt;
-            double rawVy = (ry - prevRy) / dt;
-            prevRx = rx;
-            prevRy = ry;
+        closestU = findClosestU(activeSplineX, activeSplineY, activeArc, rx, ry, closestU);
+        double closestS = activeArc.sAtU(closestU);
+        if (closestS > progressS) progressS = closestS;
+        double progressU = activeArc.uAtS(progressS);
 
-            double velAlpha = clip01(VELOCITY_FILTER_ALPHA);
-            filteredVx = velAlpha * rawVx + (1 - velAlpha) * filteredVx;
-            filteredVy = velAlpha * rawVy + (1 - velAlpha) * filteredVy;
+        double pathX = spline_get(activeSplineX, closestU);
+        double pathY = spline_get(activeSplineY, closestU);
+        double[] tangent = unitTangent(activeSplineX, activeSplineY, closestU);
+        double tx = tangent[0];
+        double ty = tangent[1];
+        double nx = -ty;
+        double ny = tx;
 
-            // Spatial progress: local projection + Newton.
-            closestU = findClosestU(splineX, splineY, arc, rx, ry, closestU);
-            double closestS = arc.sAtU(closestU);
-            if (closestS > progressS) progressS = closestS; // monotonic progress metric
-            double progressU = arc.uAtS(progressS);
+        double toPathX = pathX - rx;
+        double toPathY = pathY - ry;
+        double crossError = toPathX * nx + toPathY * ny;
+        double crossPower = computePID(
+                crossError, dt,
+                K_CROSS_P, K_CROSS_I, K_CROSS_D,
+                CROSS_I_MAX_POWER, CROSS_D_ALPHA,
+                crossPID);
 
-            double pathX = spline_get(splineX, closestU);
-            double pathY = spline_get(splineY, closestU);
-            double[] tangent = unitTangent(splineX, splineY, closestU);
-            double tx = tangent[0];
-            double ty = tangent[1];
-            double nx = -ty;
-            double ny = tx;
+        double tangentialVel = filteredVx * tx + filteredVy * ty;
+        double remainingArc = Math.max(0, activeArc.total - progressS);
+        double targetVel = targetTangentialVelocity(
+                progressS,
+                remainingArc,
+                rx,
+                ry,
+                activeSplineX,
+                activeSplineY,
+                activeArc);
 
-            // Cross-track position error is explicitly projected onto path normal.
-            double toPathX = pathX - rx;
-            double toPathY = pathY - ry;
-            double crossError = toPathX * nx + toPathY * ny;
-            double crossPower = computePID(
-                    crossError, dt,
-                    K_CROSS_P, K_CROSS_I, K_CROSS_D,
-                    CROSS_I_MAX_POWER, CROSS_D_ALPHA,
-                    crossPID
-            );
+        double tangentPower = computePID(
+                targetVel - tangentialVel, dt,
+                K_VEL_P, K_VEL_I, K_VEL_D,
+                VEL_I_MAX_POWER, VEL_D_ALPHA,
+                velPID);
 
-            // Measured speed along the current path tangent.
-            double tangentialVel = filteredVx * tx + filteredVy * ty;
+        if (START_MIN_POWER > 0
+                && Math.abs(targetVel) >= START_ASSIST_TARGET_VEL
+                && Math.abs(tangentialVel) <= START_ASSIST_ACTUAL_VEL
+                && Math.abs(tangentPower) < START_MIN_POWER) {
+            tangentPower = Math.copySign(START_MIN_POWER, targetVel);
+        }
 
-            // Spatial target-speed profile. No path clock is involved.
-            double remainingArc = Math.max(0, arc.total - progressS);
-            double targetVel = targetTangentialVelocity(
-                    progressS, remainingArc,
-                    rx, ry, splineX, splineY, arc
-            );
+        tangentPower = Range.clip(tangentPower, -1, 1);
+        crossPower = Range.clip(crossPower, -1, 1);
 
-            double velError = targetVel - tangentialVel;
-            double tangentPower = computePID(
-                    velError, dt,
-                    K_VEL_P, K_VEL_I, K_VEL_D,
-                    VEL_I_MAX_POWER, VEL_D_ALPHA,
-                    velPID
-            );
+        double targetH = spline_get(activeSplineH, progressU);
+        double headingError = angleDiff(targetH, curH);
+        double yawPower = headingError * K_HEADING;
+        if (Math.abs(headingError) < TURN_DEAD_AREA) yawPower = 0;
+        yawPower = Range.clip(yawPower, -1, 1);
 
-            // Coarse launch floor: easy to set in a hallway; no drivetrain model required.
-            if (START_MIN_POWER > 0
-                    && Math.abs(targetVel) >= START_ASSIST_TARGET_VEL
-                    && Math.abs(tangentialVel) <= START_ASSIST_ACTUAL_VEL
-                    && Math.abs(tangentPower) < START_MIN_POWER) {
-                tangentPower = Math.copySign(START_MIN_POWER, targetVel);
-            }
+        double powerX = tangentPower * tx + crossPower * nx;
+        double powerY = tangentPower * ty + crossPower * ny;
 
-            tangentPower = Range.clip(tangentPower, -1, 1);
-            crossPower = Range.clip(crossPower, -1, 1);
+        double voltage = robot.getVoltage();
+        double motorPowerGain = 1.0;
+        if (voltage > 1e-6) {
+            double rawGain = Math.abs(motorVoltage / voltage);
+            motorPowerGain = 1.0 + (rawGain - 1.0) * VOLTAGE_COMP_WEIGHT;
+        }
+        powerX *= motorPowerGain;
+        powerY *= motorPowerGain;
+        yawPower *= motorPowerGain;
 
-            // Heading follows monotonic path progress rather than wall time.
-            double targetH = spline_get(splineH, progressU);
-            double headingError = angleDiff(targetH, curH);
-            double yawPower = headingError * K_HEADING;
-            if (Math.abs(headingError) < TURN_DEAD_AREA) yawPower = 0;
-            yawPower = Range.clip(yawPower, -1, 1);
+        double translationMag = Math.hypot(powerX, powerY);
+        double maxTranslation = Range.clip(MAX_TRANSLATION_POWER, 0, 1);
+        if (translationMag > maxTranslation && translationMag > 1e-9) {
+            double scale = maxTranslation / translationMag;
+            powerX *= scale;
+            powerY *= scale;
+        }
+        yawPower = Range.clip(yawPower, -1, 1);
 
-            // Compose tangent + normal commands in field coordinates.
-            double powerX = tangentPower * tx + crossPower * nx;
-            double powerY = tangentPower * ty + crossPower * ny;
+        if (!Globals.DEBUG) {
+            robot.odoDrivetrain.driveRobotFieldCentric(powerX, -powerY, -yawPower);
+        }
 
-            // Optional voltage compensation, normally left at zero with closed-loop velocity PI.
-            double voltage = robot.getVoltage();
-            double motorPowerGain = 1.0;
-            if (voltage > 1e-6) {
-                double rawGain = Math.abs(motorVoltage / voltage);
-                motorPowerGain = 1.0 + (rawGain - 1.0) * VOLTAGE_COMP_WEIGHT;
-            }
-            powerX *= motorPowerGain;
-            powerY *= motorPowerGain;
-            yawPower *= motorPowerGain;
+        gotoX = pathX;
+        gotoY = pathY;
+        gotoH = targetH;
 
-            // Preserve translation direction when saturating.
-            double translationMag = Math.hypot(powerX, powerY);
-            double maxTranslation = Range.clip(MAX_TRANSLATION_POWER, 0, 1);
-            if (translationMag > maxTranslation && translationMag > 1e-9) {
-                double scale = maxTranslation / translationMag;
-                powerX *= scale;
-                powerY *= scale;
-            }
-            yawPower = Range.clip(yawPower, -1, 1);
+        double endPosError = Math.hypot(this.x - rx, this.y - ry);
+        double speedMag = Math.hypot(filteredVx, filteredVy);
+        boolean done = progressU >= END_U_THRESHOLD
+                && endPosError <= END_POS_THRESHOLD
+                && Math.abs(headingError) <= END_HEADING_THRESHOLD
+                && speedMag <= END_SPEED_THRESHOLD;
 
-            if (!Globals.DEBUG) {
-                robot.odoDrivetrain.driveRobotFieldCentric(powerX, -powerY, -yawPower);
-            } else {
-                robot.sleep(200);
-            }
-
-            // Expose nearest path point as current geometric target.
-            gotoX = pathX;
-            gotoY = pathY;
-            gotoH = targetH;
-
-            double endPosError = Math.hypot(this.x - rx, this.y - ry);
-            double speedMag = Math.hypot(filteredVx, filteredVy);
-            boolean nearEndProgress = progressU >= END_U_THRESHOLD;
-            boolean done = nearEndProgress
-                    && endPosError <= END_POS_THRESHOLD
-                    && Math.abs(headingError) <= END_HEADING_THRESHOLD
-                    && speedMag <= END_SPEED_THRESHOLD;
-
-            // Stall detection: progress OR endpoint convergence counts as activity.
-            if (STALL_TIMEOUT_S > 0) {
-                boolean progressed = progressS >= stallLastProgressS + STALL_PROGRESS_EPS_IN;
-                boolean endImproved = endPosError <= bestEndError - STALL_END_ERROR_EPS_IN;
-                if (progressed || endImproved) {
-                    if (progressed) stallLastProgressS = progressS;
-                    if (endPosError < bestEndError) bestEndError = endPosError;
-                    stallTimer.reset();
-                } else if (stallTimer.seconds() >= STALL_TIMEOUT_S && !done) {
-                    lastSegmentStatus = SegmentStatus.STALLED;
-                    Log.w("SplineTracker", "[STALL] seg=" + segmentIndex
-                            + " progress=" + String.format("%.2f/%.2f", progressS, arc.total)
-                            + " endErr=" + String.format("%.2f", endPosError));
-                    stopMotor();
-                    break;
-                }
-            }
-
-            if (done) {
-                lastSegmentStatus = SegmentStatus.ARRIVED;
-                stopMotor();
-                break;
-            }
-
-            // Telemetry kept focused on quantities useful for field tuning.
-            robot.telemetry.addData("seg", segmentIndex);
-            robot.telemetry.addData("uClosest", String.format("%.4f", closestU));
-            robot.telemetry.addData("progress", String.format("%.1f / %.1f in", progressS, arc.total));
-            robot.telemetry.addData("crossErr", String.format("%.2f in", crossError));
-            robot.telemetry.addData("vTarget", String.format("%.1f in/s", targetVel));
-            robot.telemetry.addData("vTangential", String.format("%.1f in/s", tangentialVel));
-            robot.telemetry.addData("pTangent", String.format("%.3f", tangentPower));
-            robot.telemetry.addData("pCross", String.format("%.3f", crossPower));
-            robot.telemetry.addData("targetH", String.format("%.1f", targetH));
-            robot.telemetry.addData("headingErr", String.format("%.1f", headingError));
-            robot.telemetry.addData("endErr", String.format("%.2f in", endPosError));
-            robot.telemetry.addData("cmdXY", String.format("%.3f, %.3f", powerX, powerY));
-            robot.telemetry.addData("Voltage", voltage);
-            robot.telemetry.addLine();
-
-            if (LOG_VERBOSE) {
-                Log.i("SplineTracker", "seg=" + segmentIndex
-                        + " u=" + String.format("%.4f", closestU)
-                        + " s=" + String.format("%.2f", progressS)
-                        + " v=" + String.format("%.1f/%.1f", tangentialVel, targetVel)
-                        + " cross=" + String.format("%.2f", crossError)
-                        + " pT=" + String.format("%.3f", tangentPower)
-                        + " pN=" + String.format("%.3f", crossPower));
+        if (STALL_TIMEOUT_S > 0) {
+            boolean progressed = progressS >= stallLastProgressS + STALL_PROGRESS_EPS_IN;
+            boolean endImproved = endPosError <= bestEndError - STALL_END_ERROR_EPS_IN;
+            if (progressed || endImproved) {
+                if (progressed) stallLastProgressS = progressS;
+                if (endPosError < bestEndError) bestEndError = endPosError;
+                stallTimer.reset();
+            } else if (stallTimer.seconds() >= STALL_TIMEOUT_S && !done) {
+                return finishActiveSegment(SegmentStatus.STALLED);
             }
         }
 
-        if (!robot.opMode.opModeIsActive() && lastSegmentStatus == SegmentStatus.RUNNING) {
+        if (done) {
+            return finishActiveSegment(SegmentStatus.ARRIVED);
+        }
+
+        robot.telemetry.addData("seg", segmentIndex);
+        robot.telemetry.addData("uClosest", String.format("%.4f", closestU));
+        robot.telemetry.addData("progress", String.format("%.1f / %.1f in", progressS, activeArc.total));
+        robot.telemetry.addData("crossErr", String.format("%.2f in", crossError));
+        robot.telemetry.addData("vTarget", String.format("%.1f in/s", targetVel));
+        robot.telemetry.addData("vTangential", String.format("%.1f in/s", tangentialVel));
+        robot.telemetry.addData("pTangent", String.format("%.3f", tangentPower));
+        robot.telemetry.addData("pCross", String.format("%.3f", crossPower));
+        robot.telemetry.addData("targetH", String.format("%.1f", targetH));
+        robot.telemetry.addData("headingErr", String.format("%.1f", headingError));
+        robot.telemetry.addData("endErr", String.format("%.2f in", endPosError));
+        robot.telemetry.addData("cmdXY", String.format("%.3f, %.3f", powerX, powerY));
+        robot.telemetry.addData("Voltage", voltage);
+
+        if (LOG_VERBOSE) {
+            Log.i("SplineTracker", "seg=" + segmentIndex
+                    + " u=" + String.format("%.4f", closestU)
+                    + " s=" + String.format("%.2f", progressS)
+                    + " v=" + String.format("%.1f/%.1f", tangentialVel, targetVel)
+                    + " cross=" + String.format("%.2f", crossError)
+                    + " pT=" + String.format("%.3f", tangentPower)
+                    + " pN=" + String.format("%.3f", crossPower));
+        }
+
+        lastResult = new SegmentResult(
+                SegmentStatus.RUNNING,
+                endPosError,
+                headingError);
+        return lastResult;
+    }
+
+    private SegmentResult updateHeadingOnly() {
+        robot.odo.update();
+        double current = getHeading();
+        double error = angleDiff(activeUnwrappedHeading, current);
+        double absError = Math.abs(error);
+
+        gotoX = getX();
+        gotoY = getY();
+        gotoH = activeUnwrappedHeading;
+
+        if (absError <= END_HEADING_THRESHOLD) {
+            return finishActiveSegment(SegmentStatus.ARRIVED);
+        }
+
+        if (absError <= bestEndError - 0.5) {
+            bestEndError = absError;
+            stallTimer.reset();
+        } else if (STALL_TIMEOUT_S > 0 && stallTimer.seconds() >= STALL_TIMEOUT_S) {
+            return finishActiveSegment(SegmentStatus.STALLED);
+        }
+
+        double yawPower = error * K_HEADING;
+        if (Math.abs(error) < TURN_DEAD_AREA) yawPower = 0;
+        yawPower = Range.clip(yawPower, -1, 1);
+
+        if (!Globals.DEBUG) {
+            robot.odoDrivetrain.driveRobotFieldCentric(0, 0, -yawPower);
+        }
+
+        lastResult = new SegmentResult(SegmentStatus.RUNNING, 0, error);
+        return lastResult;
+    }
+
+    private SegmentResult finishActiveSegment(SegmentStatus status) {
+        lastSegmentStatus = status;
+        this.heading = activeUnwrappedHeading;
+        this.preH = activeUnwrappedHeading;
+        stopMotor();
+        lastResult = snapshotResult(status);
+        clearActiveSegment();
+        return lastResult;
+    }
+
+    private SegmentResult snapshotResult(SegmentStatus status) {
+        double posError = Math.hypot(this.x - getX(), this.y - getY());
+        double headingError = angleDiff(this.heading, getHeading());
+        return new SegmentResult(status, posError, headingError);
+    }
+
+    private void clearActiveSegment() {
+        activeSplineX = null;
+        activeSplineY = null;
+        activeSplineH = null;
+        activeArc = null;
+        activeHeadingOnly = false;
+    }
+
+    @Override
+    public void cancel() {
+        if (lastSegmentStatus == SegmentStatus.RUNNING) {
             lastSegmentStatus = SegmentStatus.ABORTED;
+            stopMotor();
+            lastResult = snapshotResult(SegmentStatus.ABORTED);
         }
+        clearActiveSegment();
+    }
 
-        this.heading = unwrappedHeading;
-        this.preH = unwrappedHeading;
+    @Override
+    public SegmentResult getLastResult() {
+        return lastResult;
+    }
 
-        // Always clear stale output before potentially blocking mechanism code.
-        if (!Globals.DEBUG) robot.odoDrivetrain.driveRobotFieldCentric(0, 0, 0);
-
-        finishSegmentTask(fn);
+    public SplineTracker stopMotor() {
+        robot.odoDrivetrain.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        robot.odoDrivetrain.stopMotor();
         return this;
     }
 
@@ -962,169 +879,6 @@ public class SplineTracker {
         }
 
         return target;
-    }
-
-    /** Heading-only handler for zero-length addHeading()/degenerate segments. */
-    private void runHeadingOnly(double targetHeading) {
-        stallTimer.reset();
-        lastSegmentStatus = SegmentStatus.RUNNING;
-        double bestAbsError = Double.POSITIVE_INFINITY;
-
-        while (robot.opMode.opModeIsActive()) {
-            robot.odo.update();
-            double current = getHeading();
-            double error = angleDiff(targetHeading, current);
-            double absError = Math.abs(error);
-
-            gotoX = getX();
-            gotoY = getY();
-            gotoH = targetHeading;
-
-            if (absError <= END_HEADING_THRESHOLD) {
-                lastSegmentStatus = SegmentStatus.ARRIVED;
-                stopMotor();
-                break;
-            }
-
-            // Only call it a stall when heading error stops improving, not merely
-            // because the turn takes longer than STALL_TIMEOUT_S.
-            if (absError <= bestAbsError - 0.5) {
-                bestAbsError = absError;
-                stallTimer.reset();
-            } else if (STALL_TIMEOUT_S > 0 && stallTimer.seconds() >= STALL_TIMEOUT_S) {
-                lastSegmentStatus = SegmentStatus.STALLED;
-                Log.w("SplineTracker", "[STALL] heading-only seg=" + segmentIndex
-                        + " error=" + String.format("%.1f", error));
-                stopMotor();
-                break;
-            }
-
-            double yawPower = error * K_HEADING;
-            if (Math.abs(error) < TURN_DEAD_AREA) yawPower = 0;
-            yawPower = Range.clip(yawPower, -1, 1);
-
-            if (!Globals.DEBUG) {
-                robot.odoDrivetrain.driveRobotFieldCentric(0, 0, -yawPower);
-            } else {
-                robot.sleep(200);
-            }
-        }
-
-        if (!robot.opMode.opModeIsActive() && lastSegmentStatus == SegmentStatus.RUNNING) {
-            lastSegmentStatus = SegmentStatus.ABORTED;
-        }
-    }
-
-    private void finishSegmentTask(Runnable fn) {
-        boolean shouldRun = lastSegmentStatus == SegmentStatus.ARRIVED
-                || (RUN_TASK_ON_STALL && lastSegmentStatus == SegmentStatus.STALLED);
-
-        if (!shouldRun) {
-            Log.w("SplineTracker", "segment task skipped: status=" + lastSegmentStatus);
-            return;
-        }
-
-        if ((!Globals.DEBUG || DEBUG_RUN_FUNC) && !DO_NOT_RUN_FUNC) {
-            executeTask("addPoint:segment-end", fn);
-        } else {
-            Log.w("SplineTracker", "addPoint task skipped by debug flags");
-        }
-    }
-
-    /**
-     * Keeps the old geometric meaning: changes the Hermite tangent used by the
-     * next segment; it is not a physical velocity command.
-     */
-    public SplineTracker addVelocity(double dx, double dy) {
-        this.ldx = this.dx;
-        this.ldy = this.dy;
-        this.dx = dx;
-        this.dy = dy;
-        return this;
-    }
-
-    public SplineTracker addFunc(Runnable fn) {
-        if ((!Globals.DEBUG || DEBUG_RUN_FUNC) && !DO_NOT_RUN_FUNC) {
-            executeTask("addFunc", fn);
-        } else {
-            Log.w("SplineTracker", "addFunc skipped by debug flags");
-        }
-        return this;
-    }
-
-    private void executeTask(String location, Runnable fn) {
-        if (ASYNC_TASKS) {
-            Log.d("SplineTracker", "[ASYNC] " + location);
-            TaskLoopFrame.runOnce(fn);
-        } else {
-            Log.d("SplineTracker", "[BLOCK] " + location + ": start");
-            try {
-                fn.run();
-                Log.d("SplineTracker", "[BLOCK] " + location + ": done");
-            } catch (Exception e) {
-                Log.e("SplineTracker", "[BLOCK] " + location + ": exception", e);
-            }
-        }
-    }
-
-    public SplineTracker addTime(double seconds) {
-        return this.addTime(seconds, () -> {});
-    }
-
-    /**
-     * Explicit wait remains time-based by definition, but path following itself is not.
-     * Translation is held at zero while heading is maintained.
-     */
-    public SplineTracker addTime(double seconds, Runnable fn) {
-        double startWait = runtime.seconds();
-
-        while (runtime.seconds() - startWait < seconds && robot.opMode.opModeIsActive()) {
-            robot.odo.update();
-            double headingError = angleDiff(this.heading, getHeading());
-            double yawPower = headingError * K_HEADING;
-            if (Math.abs(headingError) < TURN_DEAD_AREA) yawPower = 0;
-            yawPower = Range.clip(yawPower, -1, 1);
-
-            if (!Globals.DEBUG) {
-                robot.odoDrivetrain.driveRobotFieldCentric(0, 0, -yawPower);
-            } else {
-                robot.sleep(200);
-            }
-        }
-
-        if (!Globals.DEBUG) robot.odoDrivetrain.driveRobotFieldCentric(0, 0, 0);
-
-        if ((!Globals.DEBUG || DEBUG_RUN_FUNC) && !DO_NOT_RUN_FUNC) {
-            executeTask("addTime:hold-end", fn);
-        }
-        return this;
-    }
-
-    /** Position unchanged, only heading changes; does not construct a fake zero-displacement spline. */
-    public SplineTracker addHeading(double heading) {
-        return this.addHeading(heading, () -> {});
-    }
-
-    public SplineTracker addHeading(double heading, Runnable fn) {
-        this.segmentIndex++;
-        double unwrappedHeading = heading;
-        double hDiff = heading - this.heading;
-        while (hDiff > 180) {
-            unwrappedHeading -= 360;
-            hDiff -= 360;
-        }
-        while (hDiff <= -180) {
-            unwrappedHeading += 360;
-            hDiff += 360;
-        }
-
-        runHeadingOnly(unwrappedHeading);
-        this.heading = unwrappedHeading;
-        this.preH = unwrappedHeading;
-
-        if (!Globals.DEBUG) robot.odoDrivetrain.driveRobotFieldCentric(0, 0, 0);
-        finishSegmentTask(fn);
-        return this;
     }
 
     // ---------------------------------------------------------------------

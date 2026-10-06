@@ -5,20 +5,13 @@ import android.util.Log;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.teamcode.common.Globals;
-import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
-import org.firstinspires.ftc.teamcode.common.util.HttpJsonService;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Non-blocking trajectory sequencer for spline autonomous paths.
@@ -37,9 +30,6 @@ import java.util.Map;
  * hardware execution. MOVE steps are delegated to a {@link MotionDriver}; that driver's
  * {@link MotionDriver#update()} contract is also one bounded-time control tick.</p>
  *
- * <p>The old synchronous {@link #execute(String)} API remains temporarily for source
- * compatibility while {@link SplineTracker} is migrated to the tick-based contract.
- * New code must not use it.</p>
  */
 public final class SplineTrajectoryLoader {
 
@@ -160,11 +150,6 @@ public final class SplineTrajectoryLoader {
     public static boolean HONOR_DELAY_AFTER_ARRIVE = false;
     public static boolean WARN_UNUSED_DURATION = true;
 
-    /* Legacy-only task switches. The tick API never executes a Runnable. */
-    @Deprecated public static boolean ASYNC_TASKS = false;
-    @Deprecated public static boolean DEBUG_RUN_TASKS = true;
-    @Deprecated public static boolean DO_NOT_RUN_TASKS = false;
-
     private enum StepType { MOVE, WAIT }
 
     private static final class Step {
@@ -240,11 +225,7 @@ public final class SplineTrajectoryLoader {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // New cooperative state-machine state
-    // ---------------------------------------------------------------------
-
-    private MotionDriver motionDriver;
+    private final MotionDriver motionDriver;
     private FailurePolicy failurePolicy = FailurePolicy.STOP_PATH;
     private Plan plan;
     private int stepIndex = -1;
@@ -255,50 +236,9 @@ public final class SplineTrajectoryLoader {
     private ExecutionResult lastResult =
             new ExecutionResult(ExecutionStatus.IDLE, -1, null, "idle");
 
-    // ---------------------------------------------------------------------
-    // Legacy compatibility state. Remove after SplineTracker/OpModes migrate.
-    // ---------------------------------------------------------------------
-
-    private final Robot legacyRobot;
-    private final SplineTracker legacyTracker;
-    private final Map<String, Runnable> legacyMarkerTasks = new HashMap<>();
-
-    /**
-     * Preferred constructor for the new tick API.
-     */
     public SplineTrajectoryLoader(MotionDriver motionDriver) {
         if (motionDriver == null) throw new IllegalArgumentException("motionDriver == null");
         this.motionDriver = motionDriver;
-        this.legacyRobot = null;
-        this.legacyTracker = null;
-    }
-
-    /**
-     * Transitional constructor. It exists only so current callers keep compiling.
-     * The current SplineTracker is still blocking and therefore cannot be used as the
-     * new MotionDriver until SplineTracker itself is migrated.
-     */
-    @Deprecated
-    public SplineTrajectoryLoader(Robot robot) {
-        if (robot == null) throw new IllegalArgumentException("robot == null");
-        this.legacyRobot = robot;
-        this.legacyTracker = new SplineTracker(robot);
-    }
-
-    /** Transitional constructor for current source compatibility. */
-    @Deprecated
-    public SplineTrajectoryLoader(SplineTracker tracker) {
-        if (tracker == null) throw new IllegalArgumentException("tracker == null");
-        this.legacyTracker = tracker;
-        this.legacyRobot = tracker.getRobot();
-    }
-
-    public SplineTrajectoryLoader setMotionDriver(MotionDriver motionDriver) {
-        if (isRunning()) {
-            throw new IllegalStateException("cannot replace MotionDriver while running");
-        }
-        this.motionDriver = motionDriver;
-        return this;
     }
 
     public SplineTrajectoryLoader setFailurePolicy(FailurePolicy policy) {
@@ -307,39 +247,9 @@ public final class SplineTrajectoryLoader {
     }
 
     /**
-     * Legacy marker callback registration. New tick-based code receives marker data
-     * through {@link #pollEvent()} instead.
-     */
-    @Deprecated
-    public SplineTrajectoryLoader addMarkerTask(String marker, Runnable task) {
-        if (marker == null || marker.isEmpty()) {
-            throw new IllegalArgumentException("marker is empty");
-        }
-        if (task == null) legacyMarkerTasks.remove(marker);
-        else legacyMarkerTasks.put(marker, task);
-        return this;
-    }
-
-    /** Legacy debugging access only. */
-    @Deprecated
-    public SplineTracker getTracker() {
-        return legacyTracker;
-    }
-
-    // ---------------------------------------------------------------------
-    // Preferred tick-based API
-    // ---------------------------------------------------------------------
-
-    /**
      * Parse and arm a trajectory. Does not move hardware and does not block.
      */
     public ExecutionResult start(String jsonString) {
-        if (motionDriver == null) {
-            throw new IllegalStateException(
-                    "No non-blocking MotionDriver configured. "
-                            + "Current SplineTracker must be migrated before using start/update().");
-        }
-
         if (isRunning()) cancel();
         resetRunState();
 
@@ -358,12 +268,6 @@ public final class SplineTrajectoryLoader {
         stepIndex = 0;
         lastResult = new ExecutionResult(ExecutionStatus.RUNNING, 0, null, "running");
         return lastResult;
-    }
-
-    /** Convenience overload for explicitly supplying the per-tick motion backend. */
-    public ExecutionResult start(String jsonString, MotionDriver driver) {
-        setMotionDriver(driver);
-        return start(jsonString);
     }
 
     /**
@@ -400,7 +304,7 @@ public final class SplineTrajectoryLoader {
     }
 
     public void cancel() {
-        if (motionDriver != null && isRunning()) {
+        if (isRunning()) {
             motionDriver.cancel();
         }
         pendingEvent = null;
@@ -410,7 +314,7 @@ public final class SplineTrajectoryLoader {
             lastResult = new ExecutionResult(
                     ExecutionStatus.CANCELLED,
                     currentFrameIndex(),
-                    motionDriver != null ? motionDriver.getLastResult() : null,
+                    motionDriver.getLastResult(),
                     "cancelled");
         }
     }
@@ -524,7 +428,7 @@ public final class SplineTrajectoryLoader {
             lastResult = new ExecutionResult(
                     ExecutionStatus.RUNNING,
                     currentFrameIndex(),
-                    motionDriver != null ? motionDriver.getLastResult() : null,
+                    motionDriver.getLastResult(),
                     "running");
         }
     }
@@ -533,7 +437,7 @@ public final class SplineTrajectoryLoader {
         lastResult = new ExecutionResult(
                 ExecutionStatus.COMPLETED,
                 currentFrameIndex(),
-                motionDriver != null ? motionDriver.getLastResult() : null,
+                motionDriver.getLastResult(),
                 "completed");
         return lastResult;
     }
@@ -670,121 +574,4 @@ public final class SplineTrajectoryLoader {
         return value;
     }
 
-    // ---------------------------------------------------------------------
-    // Deprecated blocking compatibility API
-    // ---------------------------------------------------------------------
-
-    /**
-     * @deprecated Blocks the OpMode thread through the current blocking SplineTracker.
-     *             Kept only so existing callers compile until Tracker/OpModes migrate.
-     */
-    @Deprecated
-    public ExecutionResult execute(String jsonString) {
-        if (legacyRobot == null || legacyTracker == null) {
-            throw new IllegalStateException(
-                    "execute() is legacy-only; use start()/update() with a MotionDriver");
-        }
-
-        HttpJsonService.scanObjectTree(legacyRobot);
-        ParseResult parsed = parse(jsonString);
-        if (parsed.error != null) return parsed.error;
-
-        boolean begun = false;
-        int lastFrame = -1;
-
-        for (Step step : parsed.plan.steps) {
-            lastFrame = step.frameIndex;
-
-            if (step.type == StepType.WAIT) {
-                SplineTracker.SegmentResult result = legacyTracker.hold(step.waitSeconds);
-                if (!result.arrived()) {
-                    ExecutionResult failure = new ExecutionResult(
-                            ExecutionStatus.TRACKER_FAILURE,
-                            step.frameIndex,
-                            result,
-                            "wait failed");
-                    if (failurePolicy == FailurePolicy.STOP_PATH) return failure;
-                    continue;
-                }
-                runLegacyTask(step);
-                continue;
-            }
-
-            if (!begun) {
-                legacyTracker.begin(
-                        new Pose2D(
-                                DistanceUnit.INCH,
-                                step.point.x,
-                                step.point.y,
-                                AngleUnit.DEGREES,
-                                step.point.heading),
-                        step.point);
-                begun = true;
-                runLegacyTask(step);
-                continue;
-            }
-
-            SplineTracker.SegmentResult result = legacyTracker.followTo(step.point);
-            if (!result.arrived()) {
-                ExecutionResult failure = new ExecutionResult(
-                        ExecutionStatus.TRACKER_FAILURE,
-                        step.frameIndex,
-                        result,
-                        "move failed: " + result.status);
-                if (failurePolicy == FailurePolicy.STOP_PATH) return failure;
-                continue;
-            }
-
-            runLegacyTask(step);
-        }
-
-        return new ExecutionResult(
-                ExecutionStatus.COMPLETED,
-                lastFrame,
-                legacyTracker.getLastResult(),
-                "completed");
-    }
-
-    private void runLegacyTask(Step step) {
-        Runnable task = null;
-
-        if (step.marker != null) {
-            task = legacyMarkerTasks.get(step.marker);
-        }
-
-        if (task == null && step.command != null) {
-            String[] params = step.commandParams.toArray(new String[0]);
-            task = HttpJsonService.createCommandRunnable(step.command, params);
-            if (task != null) {
-                Log.i("SplineAuto", "Resolved legacy command: " + step.command
-                        + ", params=" + Arrays.toString(params));
-            }
-        }
-
-        if (task == null || DO_NOT_RUN_TASKS) return;
-        if (!DEBUG_RUN_TASKS && Globals.DEBUG) return;
-
-        if (ASYNC_TASKS) {
-            TaskLoopFrame.runOnce(task);
-            return;
-        }
-
-        try {
-            task.run();
-        } catch (Exception e) {
-            Log.e("SplineAuto", "legacy trajectory task failed", e);
-        }
-    }
-
-    /** @deprecated Blocking compatibility helper. */
-    @Deprecated
-    public static ExecutionResult executeJsonTrajectory(String jsonString, Robot robot) {
-        return new SplineTrajectoryLoader(robot).execute(jsonString);
-    }
-
-    /** @deprecated Blocking compatibility helper. */
-    @Deprecated
-    public static ExecutionResult executeJsonTrajectory(String jsonString, SplineTracker tracker) {
-        return new SplineTrajectoryLoader(tracker).execute(jsonString);
-    }
 }
