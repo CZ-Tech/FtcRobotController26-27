@@ -5,7 +5,7 @@ import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.command.PinpointTrajectory;
+import org.firstinspires.ftc.teamcode.common.command.auto.PinpointTrajectory;
 import org.firstinspires.ftc.teamcode.common.util.Alliance;
 import org.firstinspires.ftc.teamcode.common.util.OpModeState;
 

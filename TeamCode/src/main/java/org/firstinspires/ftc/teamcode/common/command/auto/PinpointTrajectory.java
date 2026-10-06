@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.common.command;
+package org.firstinspires.ftc.teamcode.common.command.auto;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -9,6 +9,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
+import org.firstinspires.ftc.teamcode.common.command.AutoAimController;
 
 
 public class PinpointTrajectory {

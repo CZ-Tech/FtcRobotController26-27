@@ -1,13 +1,12 @@
 package org.firstinspires.ftc.teamcode.opmode.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
-import org.firstinspires.ftc.teamcode.common.command.SplineTracker;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
 
 /**
  * A simple auto OpMode that drives a rectangular path using {@link SplineTracker}

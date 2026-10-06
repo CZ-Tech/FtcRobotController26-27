@@ -1,7 +1,5 @@
 package org.firstinspires.ftc.teamcode.opmode.auto.routes;
 
-import static org.firstinspires.ftc.teamcode.common.util.OpModeState.Duo;
-
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
@@ -9,8 +7,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.TaskLoopFrame;
-import org.firstinspires.ftc.teamcode.common.command.PinpointTrajectory;
-import org.firstinspires.ftc.teamcode.common.command.TrajectoryLoader;
+import org.firstinspires.ftc.teamcode.common.command.auto.PinpointTrajectory;
+import org.firstinspires.ftc.teamcode.common.command.auto.TrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.subsystem.Shooter;
 

@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.common.command;
+package org.firstinspires.ftc.teamcode.common.command.auto;
 
 import android.util.Log;
 

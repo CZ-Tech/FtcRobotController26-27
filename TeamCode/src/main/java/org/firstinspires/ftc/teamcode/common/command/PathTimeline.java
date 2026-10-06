@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode.common.command;
 
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
+
 import java.util.List;
 import java.util.Locale;
 
