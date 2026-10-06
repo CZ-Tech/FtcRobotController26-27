@@ -132,6 +132,7 @@ public final class RobotHttpServer {
         byte[] body = response.body;
         String header = "HTTP/1.1 " + response.status + " Bad Request\r\n"
                 + "Content-Type: application/json; charset=utf-8\r\n"
+                + HttpExchange.BROWSER_ACCESS_HEADERS
                 + "Content-Length: " + body.length + "\r\n"
                 + "Connection: close\r\n\r\n";
         out.write(header.getBytes(java.nio.charset.StandardCharsets.UTF_8));

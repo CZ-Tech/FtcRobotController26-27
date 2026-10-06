@@ -12,6 +12,17 @@ import java.util.Map;
  * or {@link #beginEventStream()} exactly once.
  */
 public final class HttpExchange {
+    public static final String BROWSER_ACCESS_HEADERS =
+            "Access-Control-Allow-Origin: *\r\n"
+            + "Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS\r\n"
+            + "Access-Control-Allow-Headers: Content-Type, X-Az-Session, If-Match, Last-Event-ID\r\n"
+            + "Access-Control-Expose-Headers: ETag, X-Route-Revision\r\n"
+            + "Access-Control-Allow-Private-Network: true\r\n"
+            + "Access-Control-Max-Age: 600\r\n"
+            + "Cross-Origin-Resource-Policy: cross-origin\r\n"
+            + "Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers, "
+            + "Access-Control-Request-Private-Network\r\n";
+
     private final Socket socket;
     private final OutputStream out;
     private boolean committed;
@@ -43,9 +54,7 @@ public final class HttpExchange {
         for (Map.Entry<String, String> entry : response.headers.entrySet()) {
             header.append(entry.getKey()).append(": ").append(entry.getValue()).append("\r\n");
         }
-        header.append("Access-Control-Allow-Origin: *\r\n")
-                .append("Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS\r\n")
-                .append("Access-Control-Allow-Headers: Content-Type, X-Az-Session, If-Match\r\n")
+        header.append(BROWSER_ACCESS_HEADERS)
                 .append("Cache-Control: no-store\r\n")
                 .append("Content-Length: ").append(response.body.length).append("\r\n")
                 .append("Connection: close\r\n\r\n");
@@ -66,7 +75,7 @@ public final class HttpExchange {
                 + "Content-Type: text/event-stream; charset=utf-8\r\n"
                 + "Cache-Control: no-cache, no-transform\r\n"
                 + "Connection: keep-alive\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
+                + BROWSER_ACCESS_HEADERS
                 + "X-Accel-Buffering: no\r\n"
                 + "\r\n";
         out.write(header.getBytes(StandardCharsets.UTF_8));
