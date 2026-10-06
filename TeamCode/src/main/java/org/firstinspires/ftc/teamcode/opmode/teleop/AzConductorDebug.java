@@ -93,14 +93,6 @@ public class AzConductorDebug extends LinearOpMode {
                             break;
                         }
 
-                        case RUN_COMMAND:
-                            // Deliberately not dispatched until AutoTask implementations have
-                            // been converted to bounded-time state machines.
-                            network.execution.publish(
-                                    ExecutionStateStore.State.IDLE,
-                                    request.id,
-                                    request.commandName);
-                            break;
                     }
                 }
 

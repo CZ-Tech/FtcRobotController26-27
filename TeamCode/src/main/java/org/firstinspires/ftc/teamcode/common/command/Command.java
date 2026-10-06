@@ -16,6 +16,7 @@ import org.firstinspires.ftc.teamcode.common.util.AutoTask;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
 @AutoTask
+@Deprecated
 public class Command {
 
     public static double TURN_RANGE = 3, STEER_RANGE = 1.5;

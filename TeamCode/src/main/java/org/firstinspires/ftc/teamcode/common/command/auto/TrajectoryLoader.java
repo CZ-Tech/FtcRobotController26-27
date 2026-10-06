@@ -3,7 +3,7 @@ package org.firstinspires.ftc.teamcode.common.command.auto;
 import android.util.Log;
 
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.teamcode.common.util.HttpJsonService;
+import org.firstinspires.ftc.teamcode.common.util.LegacyAutoTaskRegistry;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -82,7 +82,7 @@ public class TrajectoryLoader {
      * @param jsonString The JSON string containing an array of keyframes.
      */
     public void execute(String jsonString) {
-        HttpJsonService.scanObjectTree(trajectory.robot);
+        LegacyAutoTaskRegistry.scanObjectTree(trajectory.robot);
         try {
             JSONArray jsonArray = new JSONArray(jsonString);
             List<Keyframe> keyframes = new ArrayList<>();
@@ -170,7 +170,7 @@ public class TrajectoryLoader {
     /**
      * Resolves a command name from the JSON {@code "command"} field to a
      * Runnable that invokes the corresponding @AutoTask registered method
-     * via {@link HttpJsonService#createCommandRunnable(String, String[])}.
+     * via the local-only legacy AutoTask registry.
      *
      * <p>This is the bridge between AzConductor's per-waypoint command
      * assignments (including parameter values in {@code commandParams})
@@ -181,7 +181,7 @@ public class TrajectoryLoader {
      * @return a Runnable that invokes the command, or null if not found
      */
     private Runnable resolveCommandTask(String commandName, String[] commandParams) {
-        Runnable task = HttpJsonService.createCommandRunnable(commandName, commandParams);
+        Runnable task = LegacyAutoTaskRegistry.createCommandRunnable(commandName, commandParams);
         if (task != null) {
             Log.i("Auto", "Resolved command task: " + commandName);
         } else {

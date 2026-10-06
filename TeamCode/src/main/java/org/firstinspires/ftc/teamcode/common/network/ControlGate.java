@@ -2,7 +2,6 @@ package org.firstinspires.ftc.teamcode.common.network;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.List;
 
 /** OpMode lifecycle gate for hardware-affecting network requests. */
 public final class ControlGate {
@@ -43,11 +42,6 @@ public final class ControlGate {
     public synchronized ControlRequest submitInlinePath(String json) {
         if (!active.get()) return null;
         return mailbox.offerInlinePath(json);
-    }
-
-    public synchronized ControlRequest submitCommand(String name, List<Object> args) {
-        if (!active.get()) return null;
-        return mailbox.offerCommand(name, args);
     }
 
     /** Main-thread consumer. Returns only the latest unconsumed operation. */

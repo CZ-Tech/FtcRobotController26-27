@@ -94,15 +94,6 @@ public class HttpAuto extends LinearOpMode {
                                     activeSubject);
                             break;
 
-                        case RUN_COMMAND:
-                            // Intentionally not wired yet. Existing @AutoTask methods still
-                            // contain blocking waits/loops and therefore are not safe to invoke
-                            // from the cooperative OpMode loop.
-                            network.execution.publish(
-                                    ExecutionStateStore.State.IDLE,
-                                    request.id,
-                                    request.commandName);
-                            break;
                     }
                 }
 

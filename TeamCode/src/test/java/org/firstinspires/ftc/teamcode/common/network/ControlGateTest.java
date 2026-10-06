@@ -8,8 +8,6 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-import java.util.Arrays;
-
 public class ControlGateTest {
 
     @Test
@@ -19,7 +17,6 @@ public class ControlGateTest {
 
         assertNull(gate.submitSavedPath("auto"));
         assertNull(gate.submitInlinePath("[]"));
-        assertNull(gate.submitCommand("shoot", Arrays.<Object>asList(1)));
         assertNull(gate.pollLatest());
         assertFalse(mailbox.hasPending());
     }
@@ -32,15 +29,15 @@ public class ControlGateTest {
 
         ControlRequest first = gate.submitSavedPath("first");
         ControlRequest second = gate.submitInlinePath("[{\"x\":1}]");
-        ControlRequest third = gate.submitCommand("latest", Arrays.<Object>asList("x"));
+        ControlRequest third = gate.submitSavedPath("latest");
 
         assertTrue(first.id < second.id);
         assertTrue(second.id < third.id);
 
         ControlRequest consumed = gate.pollLatest();
         assertSame(third, consumed);
-        assertEquals(ControlRequest.Type.RUN_COMMAND, consumed.type);
-        assertEquals("latest", consumed.commandName);
+        assertEquals(ControlRequest.Type.EXECUTE_SAVED_PATH, consumed.type);
+        assertEquals("latest", consumed.pathName);
         assertNull(gate.pollLatest());
     }
 

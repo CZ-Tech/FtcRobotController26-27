@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.common.network;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -20,10 +19,6 @@ public final class ControlMailbox {
 
     public ControlRequest offerInlinePath(String json) {
         return offer(ControlRequest.inline(nextId.getAndIncrement(), json));
-    }
-
-    public ControlRequest offerCommand(String name, List<Object> args) {
-        return offer(ControlRequest.command(nextId.getAndIncrement(), name, args));
     }
 
     /** Always replaces any older unconsumed request. */

@@ -4,11 +4,7 @@ import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpRequest;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpResponse;
-import org.json.JSONArray;
 import org.json.JSONObject;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /** Network V2 router. Contains protocol logic only; never touches robot hardware. */
 public final class RobotApiRouter implements HttpHandler {
@@ -105,16 +101,6 @@ public final class RobotApiRouter implements HttpHandler {
         if ((PREFIX + "/commands").equals(path)) {
             if ("GET".equals(request.method)) {
                 exchange.send(HttpResponse.json(200, commandCatalog.toJson()));
-            } else {
-                methodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        String commandPrefix = PREFIX + "/commands/";
-        if (path.startsWith(commandPrefix)) {
-            if ("POST".equals(request.method)) {
-                handleCommand(exchange, path.substring(commandPrefix.length()));
             } else {
                 methodNotAllowed(exchange);
             }
@@ -275,39 +261,6 @@ public final class RobotApiRouter implements HttpHandler {
             return;
         }
         executionState.publish(ExecutionStateStore.State.QUEUED, queued.id, subject);
-        exchange.send(HttpResponse.json(
-                202, "{\"accepted\":true,\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
-    }
-
-    private void handleCommand(HttpExchange exchange, String name) throws Exception {
-        boolean known = false;
-        for (CommandCatalog.Descriptor descriptor : commandCatalog.list()) {
-            if (descriptor.name.equals(name)) {
-                known = true;
-                break;
-            }
-        }
-        if (!known) {
-            exchange.send(HttpResponse.json(
-                    404, "{\"error\":\"command_not_found\"}"));
-            return;
-        }
-
-        List<Object> args = new ArrayList<>();
-        if (exchange.request.body.length > 0) {
-            JSONObject body = new JSONObject(exchange.request.bodyUtf8());
-            JSONArray array = body.optJSONArray("args");
-            if (array != null) {
-                for (int i = 0; i < array.length(); i++) args.add(array.get(i));
-            }
-        }
-
-        ControlRequest queued = controlGate.submitCommand(name, args);
-        if (queued == null) {
-            exchange.send(HttpResponse.json(200,
-                    "{\"accepted\":false,\"dropped\":true,\"reason\":\"no_active_opmode\"}"));
-            return;
-        }
         exchange.send(HttpResponse.json(
                 202, "{\"accepted\":true,\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
     }
