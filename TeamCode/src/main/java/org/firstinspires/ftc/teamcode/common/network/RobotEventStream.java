@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode.common.network;
 
 import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
+import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -19,17 +20,20 @@ public final class RobotEventStream {
     private final ExecutionStateStore executionState;
     private final RouteStore routeStore;
     private final CommandCatalog commandCatalog;
+    private final OpModeLifecycleService opModes;
 
     public RobotEventStream(SessionLease sessionLease,
                             RobotRuntimeStore runtimeStore,
                             ExecutionStateStore executionState,
                             RouteStore routeStore,
-                            CommandCatalog commandCatalog) {
+                            CommandCatalog commandCatalog,
+                            OpModeLifecycleService opModes) {
         this.sessionLease = sessionLease;
         this.runtimeStore = runtimeStore;
         this.executionState = executionState;
         this.routeStore = routeStore;
         this.commandCatalog = commandCatalog;
+        this.opModes = opModes;
     }
 
     /**
@@ -48,6 +52,7 @@ public final class RobotEventStream {
         long lastExecutionRevision = -1;
         long lastRouteRevision = -1;
         long lastCommandRevision = -1;
+        long lastOpModeRevision = -1;
         boolean runtimeSent = false;
         boolean lastOpModeActive = false;
         String lastOpModeName = null;
@@ -81,6 +86,12 @@ public final class RobotEventStream {
             if (execution.revision != lastExecutionRevision) {
                 writeEvent(out, "execution", execution.revision, execution.toJson());
                 lastExecutionRevision = execution.revision;
+            }
+
+            OpModeLifecycleService.Snapshot opMode = opModes.snapshot();
+            if (opMode.revision != lastOpModeRevision) {
+                writeEvent(out, "opmode", opMode.revision, opModeJson(opMode));
+                lastOpModeRevision = opMode.revision;
             }
 
             long routeRevision = routeStore.changeRevision();
@@ -127,5 +138,16 @@ public final class RobotEventStream {
 
     private static boolean same(String a, String b) {
         return a == null ? b == null : a.equals(b);
+    }
+
+    private static String opModeJson(OpModeLifecycleService.Snapshot snapshot) {
+        return "{\"revision\":" + snapshot.revision
+                + ",\"controllerAvailable\":" + snapshot.controllerAvailable
+                + ",\"phase\":\"" + snapshot.phase.name() + "\""
+                + ",\"activeName\":"
+                + (snapshot.activeName == null
+                    ? "null"
+                    : "\"" + JsonUtil.escape(snapshot.activeName) + "\"")
+                + "}";
     }
 }
