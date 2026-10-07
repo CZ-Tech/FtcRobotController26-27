@@ -7,12 +7,20 @@ import com.qualcomm.robotcore.hardware.PwmControl;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 
-public class Belt {
+public class Belt extends ScheduledSubsystem<Belt.Schedule> {
+    public interface Schedule extends ScheduleApi<Schedule> {
+        Schedule up(double power);
+        Schedule up();
+        Schedule down();
+        Schedule stop();
+    }
+
     public Robot robot;
     public CRServoImplEx leftBelt, rightBelt;
     public DcMotorEx beltItself;
 
     public Belt(Robot robot){
+        super(Schedule.class);
         this.robot = robot;
 
 //        leftBelt = robot.hardwareMap.get(CRServoImplEx.class, Globals.leftBelt);

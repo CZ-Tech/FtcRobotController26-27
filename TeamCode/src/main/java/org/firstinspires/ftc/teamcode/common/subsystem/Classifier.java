@@ -7,12 +7,18 @@ import com.qualcomm.robotcore.hardware.ServoImplEx;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 
-public class Classifier {
+public class Classifier extends ScheduledSubsystem<Classifier.Schedule> {
+    public interface Schedule extends ScheduleApi<Schedule> {
+        Schedule in();
+        Schedule out();
+    }
+
     public Robot robot;
     public ServoImplEx classifierServo;
     public static double IN = 1656, OUT = 2450;
 
     public Classifier(@NonNull Robot robot){
+        super(Schedule.class);
         this.robot = robot;
         classifierServo = robot.hardwareMap.get(ServoImplEx.class, Globals.classifierServo);
     }

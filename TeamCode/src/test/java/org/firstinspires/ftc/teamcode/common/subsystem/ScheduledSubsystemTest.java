@@ -15,6 +15,10 @@ public class ScheduledSubsystemTest {
         TestSchedule set(int value);
     }
 
+    interface BrokenSchedule extends ScheduleApi<BrokenSchedule> {
+        BrokenSchedule missing();
+    }
+
     private static final class TestSubsystem extends ScheduledSubsystem<TestSchedule> {
         int value;
         int cancelledCount;
@@ -35,6 +39,12 @@ public class ScheduledSubsystemTest {
         @Override
         protected void onScheduleCancelled() {
             cancelledCount++;
+        }
+    }
+
+    private static final class BrokenSubsystem extends ScheduledSubsystem<BrokenSchedule> {
+        BrokenSubsystem(AtomicLong clock) {
+            super(BrokenSchedule.class, clock::get);
         }
     }
 
@@ -175,5 +185,10 @@ public class ScheduledSubsystemTest {
         subsystem.update();
 
         assertEquals(42, subsystem.value);
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void scheduleApiMismatchFailsAtSubsystemConstruction() {
+        new BrokenSubsystem(new AtomicLong());
     }
 }

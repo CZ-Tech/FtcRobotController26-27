@@ -53,6 +53,7 @@ public abstract class ScheduledSubsystem<A> {
 
         this.apiType = apiType;
         this.nanoTime = nanoTime;
+        validateScheduleApi();
         this.cancelledProxy = createCancelledProxy();
     }
 
@@ -318,6 +319,16 @@ public abstract class ScheduledSubsystem<A> {
                             + scheduleMethod.getName()
                             + Arrays.toString(scheduleMethod.getParameterTypes()),
                     e);
+        }
+    }
+
+    private void validateScheduleApi() {
+        for (Method method : apiType.getMethods()) {
+            if (method.getDeclaringClass() == ScheduleApi.class
+                    || method.getDeclaringClass() == Object.class) {
+                continue;
+            }
+            resolveTargetMethod(method);
         }
     }
 

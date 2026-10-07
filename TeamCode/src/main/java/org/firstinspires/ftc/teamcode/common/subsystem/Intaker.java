@@ -7,13 +7,20 @@ import com.qualcomm.robotcore.hardware.PwmControl;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 
-public class Intaker {
+public class Intaker extends ScheduledSubsystem<Intaker.Schedule> {
+    public interface Schedule extends ScheduleApi<Schedule> {
+        Schedule intakerIn(double power);
+        Schedule intakerIn();
+        Schedule intakerArmStop();
+    }
+
     public final Robot robot;
 
     public CRServoImplEx leftArm, rightArm;
     public DcMotorEx intakerItself;
 
     public Intaker(Robot robot) {
+        super(Schedule.class);
         this.robot = robot;
 
 //        leftArm = robot.hardwareMap.get(CRServoImplEx.class, Globals.leftArm);
