@@ -80,8 +80,6 @@ public abstract class ScheduledSubsystem<A> {
      * thread that owns the subsystem hardware.
      */
     public final void update() {
-        autoPublishDraft();
-
         final long currentGeneration = generation.get();
         if (active != null && active.generation != currentGeneration) {
             active.cancelled = true;
@@ -141,19 +139,6 @@ public abstract class ScheduledSubsystem<A> {
      * Called only from update(), never from a producer/network thread.
      */
     protected void onScheduleCancelled() {}
-
-    private void autoPublishDraft() {
-        BuiltSchedule built = null;
-        synchronized (draftLock) {
-            if (currentDraft != null
-                    && !currentDraft.cancelled
-                    && !currentDraft.sealed
-                    && currentDraft.generation == generation.get()) {
-                built = sealLocked(currentDraft);
-            }
-        }
-        if (built != null) publish(built);
-    }
 
     private A createDraftProxy(DraftSchedule draft) {
         InvocationHandler handler = (proxy, method, args) ->

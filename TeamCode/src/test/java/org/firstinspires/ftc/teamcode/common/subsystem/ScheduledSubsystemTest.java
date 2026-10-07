@@ -68,7 +68,7 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void missingBuildAutoPublishesWholeDraftOnNextUpdate() {
+    public void missingBuildNeverPublishesDraft() {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
@@ -76,8 +76,10 @@ public class ScheduledSubsystemTest {
         assertEquals(0, subsystem.value);
 
         subsystem.update();
+        subsystem.update();
 
-        assertEquals(10, subsystem.value);
+        assertEquals(0, subsystem.value);
+        assertFalse(subsystem.hasActiveSchedule());
     }
 
     @Test
@@ -225,13 +227,18 @@ public class ScheduledSubsystemTest {
         for (Thread thread : threads) thread.join();
 
         int live = 0;
+        TestSchedule newest = null;
         synchronized (handles) {
             for (TestSchedule handle : handles) {
-                if (!handle.isCancelled()) live++;
+                if (!handle.isCancelled()) {
+                    live++;
+                    newest = handle;
+                }
             }
         }
         assertEquals(1, live);
 
+        newest.build();
         subsystem.update();
         assertTrue(subsystem.value >= 1 && subsystem.value <= 16);
     }

@@ -5,22 +5,15 @@ import java.util.function.BooleanSupplier;
 /**
  * Common fluent operations available on every subsystem schedule proxy.
  *
- * <p>{@link #build()} is optional. Without it, the current draft is atomically
- * snapshotted by the next {@code ScheduledSubsystem.update()} call. Calling
- * {@code build()} publishes the complete draft immediately, reducing submission
- * latency by up to one control-loop tick.</p>
+ * <p>A schedule is only eligible for execution after {@link #build()} seals and
+ * publishes it. Forgetting to build leaves the draft inert.</p>
  */
 public interface ScheduleApi<S> {
     S waitMillis(long millis);
 
     S waitUntil(BooleanSupplier condition);
 
-    /**
-     * Immediately seals and publishes this schedule.
-     *
-     * <p>Hardware is still only touched when the subsystem is updated on the
-     * OpMode/control thread.</p>
-     */
+    /** Seals and publishes this schedule to the capacity-1 latest-wins mailbox. */
     S build();
 
     /** Cancels this schedule if it is still the newest schedule for its subsystem. */
