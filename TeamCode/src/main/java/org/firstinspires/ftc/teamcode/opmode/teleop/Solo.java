@@ -19,7 +19,6 @@ public class Solo extends LinearOpMode {
     public void runOpMode() {
         robot.init(this);
         telemetry.addLine("Robot ready!");
-        robot.gyroTracker.init(initAngle);
         robot.teamColor = Alliance.BLUE;
         waitForStart();
         robot.limelight.pipelineSwitch(robot.teamColor.getBaseAprilTag() % 20);
@@ -34,7 +33,6 @@ public class Solo extends LinearOpMode {
 
             robot.gamepad1
                     .keyDown("a", () -> robot.command.autoSteer())
-                    .keyDown("y", () -> robot.gyroTracker.init(initAngle))
             ;
 
             robot.gamepad1
@@ -48,7 +46,6 @@ public class Solo extends LinearOpMode {
                     sss(gamepad1.left_stick_x),
                     sss(gamepad1.right_stick_x)
             );
-//            robot.telemetry.addData("Offset", robot.gyroTracker.getCurrentOffset(UnnormalizedAngleUnit.DEGREES));
 //            robot.telemetry.addData("Unnormalized Heading", robot.odoDrivetrain.getHeading(UnnormalizedAngleUnit.DEGREES));
             robot.telemetry.addData("Normalized Heading", robot.odoDrivetrain.getHeading(AngleUnit.DEGREES));
             robot.telemetry.addData("ty", result[7]);

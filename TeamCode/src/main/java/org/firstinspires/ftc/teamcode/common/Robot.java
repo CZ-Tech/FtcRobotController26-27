@@ -8,14 +8,12 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.teamcode.common.command.AutoAimController;
 import org.firstinspires.ftc.teamcode.common.command.Command;
-import org.firstinspires.ftc.teamcode.common.drive.GyroTracker;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.hardware.GamepadEx;
 import org.firstinspires.ftc.teamcode.common.subsystem.Subsystem;
 import org.firstinspires.ftc.teamcode.common.util.Alliance;
 import org.firstinspires.ftc.teamcode.common.util.OpModeState;
-import org.firstinspires.ftc.teamcode.common.util.Pattern;
 
 import org.firstinspires.ftc.teamcode.common.vision.Vision;
 import org.firstinspires.ftc.teamcode.common.vision.VisionC270;
@@ -38,8 +36,6 @@ public class Robot {
     public MixedOdo odo;
     public Limelight3A limelight;
     public VisionLimelight visionLimelight;
-    public GyroTracker gyroTracker;
-    public Pattern pattern;
     public VisionC270 visionC270;
     public AutoAimController autoAimController = new AutoAimController();
 //    public LLMegaTag2 llPos;
@@ -72,8 +68,6 @@ public class Robot {
         this.command = new Command(this); //命令系统
 
         this.odoDrivetrain = new OdoDrivetrain(this);
-
-        this.gyroTracker = new GyroTracker(this);
 
 
 

@@ -34,8 +34,6 @@ public class Duo_Head extends LinearOpMode {
 //        robot.teamColor = Alliance.BLUE;
         robot.odoDrivetrain.setShootAngle(robot.teamColor.getBaseAngle());
 
-        robot.gyroTracker.init(robot.teamColor.getBaseAngle());
-
         boolean steering = false;
 
         waitForStart();
@@ -189,7 +187,6 @@ public class Duo_Head extends LinearOpMode {
             robot.telemetry.addData("Normalized Heading", robot.odoDrivetrain.getHeading(AngleUnit.DEGREES));
             robot.telemetry.addData("apriltag_id", robot.visionLimelight.getTargetAprilTag());
 
-//            robot.telemetry.addData("Offset", robot.gyroTracker.getCurrentOffset(UnnormalizedAngleUnit.DEGREES));
             robot.telemetry.update();
         }
         TaskLoopFrame.stopAndClearAll();

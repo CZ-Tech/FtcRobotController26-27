@@ -132,7 +132,7 @@ public class Command {
 //        }
 //        robot.odoDrivetrain.turnTo(robot.teamColor.getBaseAngle() - robot.odoDrivetrain.tempAngle - robot.odo.getHeading(AngleUnit.DEGREES));
 //        robot.limelight.pipelineSwitch(robot.teamColor.getBaseAprilTag() % 20);
-        double tx = turnToVision(normalizeHeading(robot.odoDrivetrain.getHeading(AngleUnit.DEGREES)) + robot.gyroTracker.getCurrentOffset(AngleUnit.DEGREES),TURN_RANGE, TURN_SPEED);
+        double tx = turnToVision(robot.teamColor.getBaseAngle(), TURN_RANGE, TURN_SPEED);
 
 //        robot.waitFor(250);
 
@@ -211,7 +211,6 @@ public class Command {
 //        while (robot.opMode.opModeIsActive() && runtime.seconds() <= 4 && result[0] == 0){
 //            result = robot.visionLimelight.getAprilTagResults(robot.teamColor.getBaseAprilTag());
 //
-//            double turn_speed = robot.gyroTracker.getCurrentOffset(UnnormalizedAngleUnit.DEGREES) < 0 ? speed : -speed;
 //
 //            robot.odoDrivetrain.driveRobotFieldCentric(
 //                    reCulcGamepad(-robot.opMode.gamepad1.left_stick_y),
@@ -407,105 +406,6 @@ public class Command {
         robot.subsystem.shooter.staticShoot( dis);
         robot.waitFor(1100);
         robot.command.shoot3Times(dis);
-        return this;
-    }
-
-    public Command classifyArtifact(boolean isDis, double dis){
-        int[] pattern = new int[10];
-        switch(robot.pattern.getId()){
-            case 21:
-                pattern[1] = -1;
-                pattern[2] = 1;
-                pattern[3] = 1;
-                break;
-            case 22:
-                pattern[1] = 1;
-                pattern[2] = -1;
-                pattern[3] = 1;
-                break;
-            case 23:
-                pattern[1] = 1;
-                pattern[2] = 1;
-                pattern[3] = -1;
-                break;
-        }
-
-        int queue = 1;
-        boolean leave;
-
-        leave = robot.visionC270.getColor() == pattern[queue];
-
-        robot.subsystem.belt.stop();
-        scrollBack();
-        robot.waitFor(150);
-
-
-        if (!leave){
-            pushWheel();
-            robot.waitFor(250);
-            robot.subsystem.belt.up();
-            robot.waitFor(300);
-            scrollBack();
-            robot.subsystem.belt.stop();
-        }
-
-        leave = robot.visionC270.getColor() == pattern[queue];
-
-        if (isDis) robot.subsystem.shooter.shoot(dis);
-        else robot.subsystem.shooter.staticShoot( dis);
-        robot.waitFor(2000);
-
-        while (queue <= 3 && robot.opMode.opModeIsActive()){
-            if (leave) {
-                robot.subsystem.belt.up();
-                robot.waitFor(400);
-                leave = robot.visionC270.getColor() == pattern[queue+1] && queue <= 2;
-                pushWheel();
-                robot.waitFor(250);
-                robot.subsystem.belt.stop();
-                if (leave) {
-                    scrollBack();
-                }
-                robot.waitFor(300);
-                scrollBack();
-                robot.waitFor(300);
-                robot.subsystem.belt.stop();
-                queue++;
-            }
-            else {
-
-            }
-
-        }
-
-        return this;
-    }
-
-    private Command caseGPP(boolean isDis, double dis){
-        int[] pattern = {0, -1, 1, 1};
-        int queue = 1;
-        boolean leave = false;
-
-        if (isDis) robot.subsystem.shooter.shoot(dis);
-        else robot.subsystem.shooter.staticShoot( dis);
-        robot.waitFor(2000);
-
-        while (queue <= 3 && robot.opMode.opModeIsActive()){
-            leave = robot.visionC270.getColor() == pattern[queue];
-            if (leave) {
-
-                queue++;
-            }
-        }
-
-        return this;
-    }
-
-    private Command casePGP(boolean isDis, double dis){
-        return this;
-    }
-
-    private Command casePPG(boolean isDis, double dis){
         return this;
     }
 

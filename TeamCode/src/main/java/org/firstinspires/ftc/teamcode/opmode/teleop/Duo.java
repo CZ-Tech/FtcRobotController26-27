@@ -50,8 +50,6 @@ public class Duo extends LinearOpMode {
 //        robot.teamColor = Alliance.BLUE;
         robot.odoDrivetrain.setShootAngle(robot.teamColor.getBaseAngle());
 
-        robot.gyroTracker.init(robot.teamColor.getBaseAngle());
-
 //        robot.limelight.pipelineSwitch(robot.teamColor.getBaseAprilTag() % 20);
 //        robot.limelight.setPollRateHz(50);
 //        robot.limelight.start();
@@ -274,7 +272,6 @@ public class Duo extends LinearOpMode {
             robot.telemetry.addData("目标转速",Shooter.distanceToRPM(DistanceUnit.MM, distanceToGoalMM));
 //            robot.telemetry.addData("apriltag_id", robot.visionLimelight.getTargetAprilTag());
 
-//            robot.telemetry.addData("Offset", robot.gyroTracker.getCurrentOffset(UnnormalizedAngleUnit.DEGREES));
 //            robot.telemetry.addData("Pipeline", robot.limelight.getStatus().getPipelineIndex());
 //            robot.telemetry.addData("FPS", robot.limelight.getStatus().getFps());
 //            robot.telemetry.addData("Connection Info", robot.limelight.getConnectionInfo());

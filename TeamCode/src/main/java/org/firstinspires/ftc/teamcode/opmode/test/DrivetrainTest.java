@@ -16,8 +16,8 @@ import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
  * <p>Only initializes MixedOdo and OdoDrivetrain. Vision, subsystems, commands,
  * and the rest of Robot.init() are intentionally not initialized.</p>
  */
-@TeleOp(name = "Headless Drive Test", group = "Test")
-public class HeadlessDriveTest extends LinearOpMode {
+@TeleOp(name = "DrivetrainTest Test", group = "Test")
+public class DrivetrainTest extends LinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
 
     @Override
@@ -38,6 +38,8 @@ public class HeadlessDriveTest extends LinearOpMode {
             telemetry.addLine("X=LF  Y=RF  A=LB  B=RB");
             telemetry.update();
 
+            robot.odo.resetPosAndIMU();
+
             waitForStart();
 
             while (opModeIsActive()) {
@@ -47,22 +49,11 @@ public class HeadlessDriveTest extends LinearOpMode {
                 double lateral = gamepad1.left_stick_x;
                 double yaw = gamepad1.right_stick_x;
 
-                boolean wheelTest = gamepad1.left_bumper || gamepad1.right_bumper;
-                if (wheelTest) {
-                    double power = gamepad1.right_bumper ? -WHEEL_TEST_POWER : WHEEL_TEST_POWER;
-                    robot.odoDrivetrain.setDrivePower(
-                            gamepad1.x ? power : 0,
-                            gamepad1.y ? power : 0,
-                            gamepad1.a ? power : 0,
-                            gamepad1.b ? power : 0
-                    );
-                } else {
-                    robot.odoDrivetrain.driveRobotFieldCentric(
-                            axial,
-                            lateral,
-                            yaw
-                    );
-                }
+                robot.odoDrivetrain.driveRobotFieldCentric(
+                        axial,
+                        lateral,
+                        yaw
+                );
 
                 Pose2D pose = robot.odo.getPosition();
                 telemetry.addData("X (in)", "%.2f", pose.getX(DistanceUnit.INCH));
@@ -71,7 +62,6 @@ public class HeadlessDriveTest extends LinearOpMode {
                 telemetry.addData("Axial", "%.2f", axial);
                 telemetry.addData("Lateral", "%.2f", lateral);
                 telemetry.addData("Yaw", "%.2f", yaw);
-                telemetry.addData("Wheel test", wheelTest ? "ON" : "OFF");
                 telemetry.update();
             }
         } finally {

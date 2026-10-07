@@ -78,7 +78,29 @@ public class OdoDrivetrain {
         double powerLeftBack = (axial - lateral + yaw) / denominator;
         double powerRightBack = (axial + lateral - yaw) / denominator;
 
-
+        // 一号手柄按住share键或者back键测试
+        /**
+         * Xbox/PS4 Button - Motor
+         * X / ▢         - Left  Front
+         * Y / Δ         - Right Front
+         * B / O         - Right Back
+         * A / X         - Left  Back
+         * The buttons are mapped to match the wheels spatially if you
+         * were to rotate the gamepad 45deg°. x/square is the front left
+         * and each button corresponds to the wheel as you go clockwise
+         *                 / ______ \
+         * ------------.-'   _  '-..+              Front of Bot
+         *           /   _  ( Y )  _  \                  ^
+         * |  ( X )  _  ( B ) |      Left Front  \    Right Front
+         *     ___  '.      ( A )     /|       Wheel       \       Wheel
+         *  .'    '.    '-._____.-'  .'       (x/▢)        \       (Y/Δ)
+         * |       |                 |                      \
+         *  '.___.' '.               |          Left Back    \       Right Back
+         *          '.             /             Wheel       \       Wheel
+         *           \.          .'              (A/X)        \       (B/O)
+         *            \________/
+         * https://rr.brott.dev/docs/v1-0/tuning/
+         */
         // TODO: 电机测试代码。测试完可以注释掉。
         if (Globals.DEBUG && robot.opMode.gamepad1.share) {
             powerLeftFront = robot.opMode.gamepad1.x ? 0.3 : 0;
@@ -114,7 +136,6 @@ public class OdoDrivetrain {
         tempAngle = getHeading(AngleUnit.DEGREES);
         angleOffset = AngleUnit.DEGREES.normalize(angleOffset - tempAngle);
 
-//        robot.gyroTracker.handleReset(UnnormalizedAngleUnit.DEGREES);  // FiXME 理论上这玩意没用了
         while(robot.opMode.gamepad1.share || robot.opMode.gamepad2.options);
     }
 
