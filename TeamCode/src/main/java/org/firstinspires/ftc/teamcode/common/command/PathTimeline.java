@@ -73,9 +73,8 @@ public class PathTimeline {
      * <p>默认 {@link #TANGENT_ABSOLUTE}：幅值直接当作 in/s 速度上限。
      * {@link #TANGENT_RELATIVE}（只让幅值的相对形状决定快慢）与 {@link #TANGENT_OFF}
      * （忽略幅值，只受 V_MAX/A_MAX 约束）留给"导出器幅值不是 in/s"的情况。</p>
-     * <p>量级自查：用 {@code tools/PathSchedulePreview} 跑一遍真实路线。本仓库旧
-     * B_Far6Ball 数据下三种模式分别排出 43.45s / 10.72s / 7.55s —— 若某条路径排出来
-     * 的总时间远超预期，就说明这批 dx/dy 幅值不适合当 in/s 用。</p>
+     * <p>量级自查：用真实路线比较三种模式的排程总时间；若某条路径排出来的总时间
+     * 远超预期，就说明这批 dx/dy 幅值不适合直接当作 in/s 使用。</p>
      */
     public static int TANGENT_SPEED_MODE = TANGENT_ABSOLUTE;
 
