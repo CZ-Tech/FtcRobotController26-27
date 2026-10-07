@@ -18,14 +18,14 @@ public final class RobotEventStream {
     private final SessionLease sessionLease;
     private final RobotRuntimeStore runtimeStore;
     private final ExecutionStateStore executionState;
-    private final RouteStore routeStore;
+    private final RouteRepository routeStore;
     private final CommandCatalog commandCatalog;
     private final OpModeLifecycleService opModes;
 
     public RobotEventStream(SessionLease sessionLease,
                             RobotRuntimeStore runtimeStore,
                             ExecutionStateStore executionState,
-                            RouteStore routeStore,
+                            RouteRepository routeStore,
                             CommandCatalog commandCatalog,
                             OpModeLifecycleService opModes) {
         this.sessionLease = sessionLease;

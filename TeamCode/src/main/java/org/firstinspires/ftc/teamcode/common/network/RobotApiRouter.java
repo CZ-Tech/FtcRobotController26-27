@@ -14,7 +14,7 @@ public final class RobotApiRouter implements HttpHandler {
     private static final String PREFIX = "/api/v2";
 
     private final SessionLease sessionLease;
-    private final RouteStore routeStore;
+    private final RouteRepository routeStore;
     private final ControlGate controlGate;
     private final ExecutionStateStore executionState;
     private final RobotRuntimeStore runtimeStore;
@@ -23,7 +23,7 @@ public final class RobotApiRouter implements HttpHandler {
     private final RobotEventStream eventStream;
 
     public RobotApiRouter(SessionLease sessionLease,
-                          RouteStore routeStore,
+                          RouteRepository routeStore,
                           ControlGate controlGate,
                           ExecutionStateStore executionState,
                           RobotRuntimeStore runtimeStore,
@@ -215,7 +215,7 @@ public final class RobotApiRouter implements HttpHandler {
         }
 
         if ("GET".equals(request.method)) {
-            RouteStore.Entry entry = routeStore.get(name);
+            RouteRepository.Entry entry = routeStore.get(name);
             if (entry == null) {
                 exchange.send(HttpResponse.json(404, "{\"error\":\"route_not_found\"}"));
                 return;
@@ -234,7 +234,8 @@ public final class RobotApiRouter implements HttpHandler {
                         428, "{\"error\":\"if_match_required\"}"));
                 return;
             }
-            RouteStore.PutResult result = routeStore.put(name, request.bodyUtf8(), expected);
+            RouteRepository.PutResult result =
+                    routeStore.put(name, request.bodyUtf8(), expected);
             if (result.preconditionFailed) {
                 long actual = result.entry == null ? 0 : result.entry.revision;
                 exchange.send(HttpResponse.json(
@@ -256,7 +257,7 @@ public final class RobotApiRouter implements HttpHandler {
                         428, "{\"error\":\"if_match_required\"}"));
                 return;
             }
-            RouteStore.Entry current = routeStore.get(name);
+            RouteRepository.Entry current = routeStore.get(name);
             if (current == null) {
                 exchange.send(HttpResponse.json(404, "{\"error\":\"route_not_found\"}"));
                 return;
