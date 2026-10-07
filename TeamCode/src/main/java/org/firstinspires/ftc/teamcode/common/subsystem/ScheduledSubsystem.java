@@ -7,34 +7,30 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 /**
- * Base class for hardware-owning subsystems with a latest-wins fluent scheduler.
+ * Base class for hardware-owning subsystems with a latest-execute-wins scheduler.
  *
- * <p>Each subsystem owns exactly one mutable draft, one capacity-1 thread-safe
- * incoming mailbox, and at most one active built schedule. Calling
- * {@link #schedule()} immediately invalidates every older draft, pending schedule,
- * and active schedule. The old proxy then behaves as a cancelled null object.</p>
+ * <p>{@link #schedule()} creates a completely independent mutable draft. The framework
+ * does not register, order, supersede or otherwise care about drafts. A draft may be
+ * stored, passed around and completed later.</p>
  *
- * <p>Schedule proxies never touch hardware. Subsystem methods captured by the
- * proxy are invoked only from {@link #update()}, so callers may safely construct
- * schedules from another thread without moving hardware access off the OpMode
- * thread.</p>
+ * <p>Only {@link ScheduleApi#execute()} crosses the scheduling boundary: it atomically
+ * seals that draft into an immutable built schedule, replaces the capacity-1 incoming
+ * mailbox, and logically cancels the currently active schedule. Hardware remains owned
+ * by the OpMode/control thread and is only touched from {@link #update()}.</p>
  */
 public abstract class ScheduledSubsystem<A> {
     public static int MAX_STEPS_PER_UPDATE = 32;
 
     private final Class<A> apiType;
     private final LongSupplier nanoTime;
-    private final AtomicLong generation = new AtomicLong(0);
     private final AtomicReference<BuiltSchedule> incoming = new AtomicReference<>();
-    private final Object draftLock = new Object();
+    private final Object executionLock = new Object();
 
-    private DraftSchedule currentDraft;
     private volatile BuiltSchedule active;
     private final A cancelledProxy;
 
@@ -57,86 +53,77 @@ public abstract class ScheduledSubsystem<A> {
         this.cancelledProxy = createCancelledProxy();
     }
 
-    /**
-     * Starts a new draft and immediately supersedes all previous work for this subsystem.
-     */
+    /** Creates a new independent draft. No running or pending work is affected. */
     public final A schedule() {
-        final DraftSchedule draft;
-        synchronized (draftLock) {
-            final long nextGeneration = generation.incrementAndGet();
-            if (currentDraft != null) currentDraft.cancelled = true;
-            draft = new DraftSchedule(nextGeneration);
-            currentDraft = draft;
-
-            BuiltSchedule dropped = incoming.getAndSet(null);
-            if (dropped != null) dropped.cancelled = true;
-        }
-
-        return createDraftProxy(draft);
+        return createDraftProxy(new DraftSchedule());
     }
 
     /**
-     * One bounded-time scheduler tick. This method must be called from the OpMode/control
-     * thread that owns the subsystem hardware.
+     * One bounded-time scheduler tick. Must run on the OpMode/control thread that owns
+     * this subsystem's hardware.
      */
     public final void update() {
-        final long currentGeneration = generation.get();
-        if (active != null && active.generation != currentGeneration) {
-            active.cancelled = true;
-            active = null;
-            onScheduleCancelled();
-        }
+        boolean cancelledActive = false;
 
-        BuiltSchedule next = incoming.getAndSet(null);
-        if (next != null) {
-            if (next.generation != generation.get() || next.cancelled) {
-                next.cancelled = true;
-            } else {
+        synchronized (executionLock) {
+            if (active != null && active.cancelled) {
+                active = null;
+                cancelledActive = true;
+            }
+
+            BuiltSchedule next = incoming.getAndSet(null);
+            if (next != null) {
                 if (active != null) {
                     active.cancelled = true;
-                    onScheduleCancelled();
+                    active = null;
+                    cancelledActive = true;
                 }
-                active = next;
+                if (!next.cancelled) active = next;
             }
         }
 
-        if (active != null) {
-            active.update(nanoTime.getAsLong());
-            if (active.finished || active.cancelled) active = null;
+        if (cancelledActive) onScheduleCancelled();
+
+        BuiltSchedule running = active;
+        if (running != null) {
+            running.update(nanoTime.getAsLong());
+            boolean wasCancelled = running.cancelled;
+            if (running.finished || wasCancelled) {
+                synchronized (executionLock) {
+                    if (active == running) active = null;
+                }
+            }
+            if (wasCancelled) onScheduleCancelled();
         }
 
         periodic();
     }
 
     /**
-     * Immediately invalidates draft, pending and active work.
+     * Cancels pending and active executed schedules.
      *
-     * <p>Hardware cleanup remains on the control thread: {@link #onScheduleCancelled()}
-     * runs from the next {@link #update()} when an active chain is observed stale.</p>
+     * <p>Independent drafts are intentionally unaffected because the subsystem does not
+     * own or track them before execute().</p>
      */
     public final void cancelSchedule() {
-        synchronized (draftLock) {
-            generation.incrementAndGet();
-            if (currentDraft != null) currentDraft.cancelled = true;
-            currentDraft = null;
-
+        synchronized (executionLock) {
             BuiltSchedule dropped = incoming.getAndSet(null);
             if (dropped != null) dropped.cancelled = true;
+            if (active != null) active.cancelled = true;
         }
     }
 
     public final boolean hasActiveSchedule() {
-        return active != null && !active.cancelled && !active.finished;
+        BuiltSchedule running = active;
+        return running != null && !running.cancelled && !running.finished;
     }
 
-    /**
-     * Optional normal per-loop work for the subsystem. It is always called from update().
-     */
+    /** Optional normal per-loop work, always called from {@link #update()}. */
     protected void periodic() {}
 
     /**
-     * Optional hardware-safe reaction when an active schedule is preempted.
-     * Called only from update(), never from a producer/network thread.
+     * Optional hardware-safe reaction when an executed schedule is preempted/cancelled.
+     * Called only from {@link #update()}, never from a producer thread.
      */
     protected void onScheduleCancelled() {}
 
@@ -157,7 +144,7 @@ public abstract class ScheduledSubsystem<A> {
             if ("isCancelled".equals(method.getName()) && method.getParameterCount() == 0) {
                 return true;
             }
-            if ("isBuilt".equals(method.getName()) && method.getParameterCount() == 0) {
+            if ("isExecuted".equals(method.getName()) && method.getParameterCount() == 0) {
                 return false;
             }
             return returnProxyOrDefault(proxy, method);
@@ -174,57 +161,74 @@ public abstract class ScheduledSubsystem<A> {
             Method method,
             Object[] args) throws Exception {
         if (method.getDeclaringClass() == Object.class) {
-            return objectMethod(proxy, method, args, "Schedule#" + draft.generation);
+            return objectMethod(proxy, method, args, "ScheduleDraft");
         }
 
         String name = method.getName();
-        boolean stale = draft.cancelled || draft.generation != generation.get();
 
         if ("isCancelled".equals(name) && method.getParameterCount() == 0) {
-            return stale;
+            return draft.isCancelled();
+        }
+        if ("isExecuted".equals(name) && method.getParameterCount() == 0) {
+            return draft.isExecuted();
         }
 
-        if ("isBuilt".equals(name) && method.getParameterCount() == 0) {
-            return draft.sealed && !stale;
-        }
+        synchronized (draft) {
+            if (draft.state == DraftState.CANCELLED || draft.executedScheduleCancelled()) {
+                return invokeCancelled(method, args);
+            }
 
-        if (stale) {
-            return invokeCancelled(method, args);
-        }
+            if ("waitMillis".equals(name) && method.getParameterCount() == 1) {
+                if (draft.state == DraftState.EXECUTED) return proxy;
+                long millis = (Long) args[0];
+                if (millis < 0) throw new IllegalArgumentException("millis < 0");
+                draft.steps.add(new WaitMillisStep(millis));
+                return proxy;
+            }
 
-        // build() seals this handle. Further fluent mutations are harmless no-ops;
-        // the handle still reports built rather than cancelled until superseded.
-        if (draft.sealed) {
+            if ("waitUntil".equals(name) && method.getParameterCount() == 1) {
+                if (draft.state == DraftState.EXECUTED) return proxy;
+                BooleanSupplier condition = (BooleanSupplier) args[0];
+                if (condition == null) throw new IllegalArgumentException("condition == null");
+                draft.steps.add(new WaitUntilStep(condition));
+                return proxy;
+            }
+
+            if ("execute".equals(name) && method.getParameterCount() == 0) {
+                if (draft.state == DraftState.EXECUTED) return proxy;
+                BuiltSchedule built = new BuiltSchedule(new ArrayList<>(draft.steps));
+                draft.state = DraftState.EXECUTED;
+                draft.built = built;
+                publish(built);
+                return proxy;
+            }
+
+            if ("cancel".equals(name) && method.getParameterCount() == 0) {
+                draft.state = DraftState.CANCELLED;
+                if (draft.built != null) draft.built.cancelled = true;
+                return cancelledProxy;
+            }
+
+            if (draft.state == DraftState.EXECUTED) return proxy;
+
+            Method target = resolveTargetMethod(method);
+            draft.steps.add(new InvokeStep(target, copyArgs(args)));
             return proxy;
         }
+    }
 
-        if ("waitMillis".equals(name) && method.getParameterCount() == 1) {
-            long millis = (Long) args[0];
-            if (millis < 0) throw new IllegalArgumentException("millis < 0");
-            append(draft, new WaitMillisStep(millis));
-            return proxy;
+    /**
+     * Submission boundary. Last execute wins; draft creation order is irrelevant.
+     */
+    private void publish(BuiltSchedule built) {
+        synchronized (executionLock) {
+            BuiltSchedule dropped = incoming.getAndSet(built);
+            if (dropped != null) dropped.cancelled = true;
+
+            // Logical cancellation may happen from any producer thread. Hardware cleanup
+            // is deferred to update()/onScheduleCancelled() on the control thread.
+            if (active != null) active.cancelled = true;
         }
-
-        if ("waitUntil".equals(name) && method.getParameterCount() == 1) {
-            BooleanSupplier condition = (BooleanSupplier) args[0];
-            if (condition == null) throw new IllegalArgumentException("condition == null");
-            append(draft, new WaitUntilStep(condition));
-            return proxy;
-        }
-
-        if ("build".equals(name) && method.getParameterCount() == 0) {
-            buildNow(draft);
-            return proxy;
-        }
-
-        if ("cancel".equals(name) && method.getParameterCount() == 0) {
-            cancelDraft(draft);
-            return cancelledProxy;
-        }
-
-        Method target = resolveTargetMethod(method);
-        append(draft, new InvokeStep(target, copyArgs(args)));
-        return proxy;
     }
 
     private Object invokeCancelled(Method method, Object[] args) {
@@ -233,63 +237,6 @@ public abstract class ScheduledSubsystem<A> {
         } catch (IllegalAccessException | InvocationTargetException e) {
             throw new IllegalStateException("cancelled schedule proxy failure", e);
         }
-    }
-
-    private boolean isLive(DraftSchedule draft) {
-        return !draft.cancelled
-                && !draft.sealed
-                && draft.generation == generation.get();
-    }
-
-    private void append(DraftSchedule draft, Step step) {
-        synchronized (draftLock) {
-            if (!isLive(draft) || currentDraft != draft) {
-                draft.cancelled = true;
-                return;
-            }
-            draft.steps.add(step);
-        }
-    }
-
-    private void buildNow(DraftSchedule draft) {
-        BuiltSchedule built;
-        synchronized (draftLock) {
-            if (!isLive(draft) || currentDraft != draft) {
-                draft.cancelled = true;
-                return;
-            }
-            built = sealLocked(draft);
-        }
-        publish(built);
-    }
-
-    private BuiltSchedule sealLocked(DraftSchedule draft) {
-        draft.sealed = true;
-        if (currentDraft == draft) currentDraft = null;
-        return new BuiltSchedule(
-                draft.generation,
-                new ArrayList<>(draft.steps));
-    }
-
-    private void cancelDraft(DraftSchedule draft) {
-        synchronized (draftLock) {
-            draft.cancelled = true;
-            if (currentDraft == draft) currentDraft = null;
-        }
-
-        // Only the current generation is allowed to invalidate active/pending work.
-        if (draft.generation == generation.get()) {
-            cancelSchedule();
-        }
-    }
-
-    private void publish(BuiltSchedule built) {
-        if (built.generation != generation.get()) {
-            built.cancelled = true;
-            return;
-        }
-        BuiltSchedule dropped = incoming.getAndSet(built);
-        if (dropped != null) dropped.cancelled = true;
     }
 
     private Method resolveTargetMethod(Method scheduleMethod) {
@@ -355,14 +302,27 @@ public abstract class ScheduledSubsystem<A> {
         return null;
     }
 
-    private final class DraftSchedule {
-        final long generation;
-        final List<Step> steps = new ArrayList<>();
-        boolean sealed;
-        boolean cancelled;
+    private enum DraftState {
+        OPEN,
+        EXECUTED,
+        CANCELLED
+    }
 
-        DraftSchedule(long generation) {
-            this.generation = generation;
+    private final class DraftSchedule {
+        final List<Step> steps = new ArrayList<>();
+        DraftState state = DraftState.OPEN;
+        BuiltSchedule built;
+
+        synchronized boolean isCancelled() {
+            return state == DraftState.CANCELLED || executedScheduleCancelled();
+        }
+
+        synchronized boolean isExecuted() {
+            return state == DraftState.EXECUTED;
+        }
+
+        boolean executedScheduleCancelled() {
+            return built != null && built.cancelled;
         }
     }
 
@@ -430,14 +390,12 @@ public abstract class ScheduledSubsystem<A> {
     }
 
     private final class BuiltSchedule {
-        final long generation;
         final List<Step> steps;
         int index;
         boolean finished;
         volatile boolean cancelled;
 
-        BuiltSchedule(long generation, List<Step> steps) {
-            this.generation = generation;
+        BuiltSchedule(List<Step> steps) {
             this.steps = steps;
             this.finished = steps.isEmpty();
         }

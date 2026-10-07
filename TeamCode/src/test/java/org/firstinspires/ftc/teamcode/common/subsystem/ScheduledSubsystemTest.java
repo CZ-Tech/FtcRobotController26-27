@@ -52,14 +52,14 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void buildPublishesImmediatelyButHardwareWaitsForUpdate() {
+    public void executePublishesButHardwareWaitsForUpdate() {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
-        TestSchedule schedule = subsystem.schedule().add(2).set(7).build();
+        TestSchedule schedule = subsystem.schedule().add(2).set(7).execute();
 
         assertEquals(0, subsystem.value);
-        assertTrue(schedule.isBuilt());
+        assertTrue(schedule.isExecuted());
 
         subsystem.update();
 
@@ -68,7 +68,7 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void missingBuildNeverPublishesDraft() {
+    public void missingExecuteNeverPublishesDraft() {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
@@ -83,13 +83,13 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void latestBuiltScheduleWinsCapacityOneMailbox() {
+    public void latestExecutedScheduleWinsCapacityOneMailbox() {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
-        subsystem.schedule().set(1).build();
-        subsystem.schedule().set(2).build();
-        subsystem.schedule().set(3).build();
+        subsystem.schedule().set(1).execute();
+        subsystem.schedule().set(2).execute();
+        subsystem.schedule().set(3).execute();
 
         subsystem.update();
 
@@ -97,20 +97,22 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void newScheduleCancelsOldProxyAndOldProxyBecomesNoOp() {
+    public void draftsAreIndependentUntilExecute() {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
-        TestSchedule old = subsystem.schedule().set(1);
-        TestSchedule newer = subsystem.schedule().set(2);
+        TestSchedule first = subsystem.schedule().set(1);
+        TestSchedule second = subsystem.schedule().set(2);
 
-        TestSchedule cancelled = old.add(100).waitMillis(100).set(100);
-        assertTrue(cancelled.isCancelled());
+        assertFalse(first.isCancelled());
+        assertFalse(second.isCancelled());
 
-        newer.build();
+        second.execute();
+        first.add(10).execute();
         subsystem.update();
 
-        assertEquals(2, subsystem.value);
+        assertEquals(11, subsystem.value);
+        assertTrue(second.isCancelled());
     }
 
     @Test
@@ -122,7 +124,7 @@ public class ScheduledSubsystemTest {
                 .set(1)
                 .waitMillis(100)
                 .set(2)
-                .build();
+                .execute();
 
         subsystem.update();
         assertEquals(1, subsystem.value);
@@ -148,7 +150,7 @@ public class ScheduledSubsystemTest {
                 .set(1)
                 .waitUntil(() -> ready.get() == 1)
                 .set(2)
-                .build();
+                .execute();
 
         subsystem.update();
         assertEquals(1, subsystem.value);
@@ -170,11 +172,18 @@ public class ScheduledSubsystemTest {
                 .set(1)
                 .waitMillis(1000)
                 .set(9)
-                .build();
+                .execute();
         subsystem.update();
         assertEquals(1, subsystem.value);
 
-        subsystem.schedule().set(5).build();
+        TestSchedule draft = subsystem.schedule().set(5);
+
+        // Merely creating a draft must not preempt the running schedule.
+        subsystem.update();
+        assertEquals(1, subsystem.value);
+        assertEquals(0, subsystem.cancelledCount);
+
+        draft.execute();
         subsystem.update();
 
         assertEquals(5, subsystem.value);
@@ -186,7 +195,7 @@ public class ScheduledSubsystemTest {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
 
-        subsystem.schedule().set(42).build();
+        subsystem.schedule().set(42).execute();
         subsystem.update();
 
         assertEquals(42, subsystem.value);
@@ -198,7 +207,7 @@ public class ScheduledSubsystemTest {
     }
 
     @Test
-    public void concurrentScheduleCreationLeavesExactlyOneLiveNewestDraft() throws Exception {
+    public void concurrentScheduleCreationLeavesAllDraftsIndependent() throws Exception {
         AtomicLong clock = new AtomicLong();
         TestSubsystem subsystem = new TestSubsystem(clock);
         CountDownLatch start = new CountDownLatch(1);
@@ -227,19 +236,43 @@ public class ScheduledSubsystemTest {
         for (Thread thread : threads) thread.join();
 
         int live = 0;
-        TestSchedule newest = null;
         synchronized (handles) {
             for (TestSchedule handle : handles) {
                 if (!handle.isCancelled()) {
                     live++;
-                    newest = handle;
                 }
             }
         }
-        assertEquals(1, live);
+        assertEquals(16, live);
 
-        newest.build();
+        TestSchedule chosen;
+        synchronized (handles) {
+            chosen = handles.get(7);
+        }
+        chosen.execute();
         subsystem.update();
         assertTrue(subsystem.value >= 1 && subsystem.value <= 16);
+    }
+
+    @Test
+    public void executedScheduleCanBeCancelledThroughItsDraftHandle() {
+        AtomicLong clock = new AtomicLong();
+        TestSubsystem subsystem = new TestSubsystem(clock);
+
+        TestSchedule schedule = subsystem.schedule()
+                .set(1)
+                .waitMillis(1000)
+                .set(2)
+                .execute();
+
+        subsystem.update();
+        assertEquals(1, subsystem.value);
+
+        schedule.cancel();
+        subsystem.update();
+
+        assertEquals(1, subsystem.value);
+        assertTrue(schedule.isCancelled());
+        assertEquals(1, subsystem.cancelledCount);
     }
 }
