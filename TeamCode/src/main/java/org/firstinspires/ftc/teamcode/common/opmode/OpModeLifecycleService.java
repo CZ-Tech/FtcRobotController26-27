@@ -146,7 +146,7 @@ public final class OpModeLifecycleService {
 
     private enum Action { INIT, START, STOP }
 
-    private ActionResult invoke(String name, long expectedRevision, Action action) {
+    private synchronized ActionResult invoke(String name, long expectedRevision, Action action) {
         Snapshot observed = current.get();
         if (expectedRevision != observed.revision) {
             return new ActionResult(

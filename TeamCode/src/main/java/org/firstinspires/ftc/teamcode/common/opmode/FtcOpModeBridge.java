@@ -38,6 +38,7 @@ public final class FtcOpModeBridge
 
     @Override
     public List<OpModeLifecycleService.Descriptor> listAutonomous() {
+        RegisteredOpModes.getInstance().waitOpModesRegistered();
         List<OpModeLifecycleService.Descriptor> result = new ArrayList<>();
         for (OpModeMeta meta : RegisteredOpModes.getInstance().getOpModes()) {
             if (meta.flavor == OpModeMeta.Flavor.AUTONOMOUS) {
@@ -83,6 +84,12 @@ public final class FtcOpModeBridge
     public OpModeLifecycleService.BackendResult start(
             String name,
             OpModeLifecycleService.Snapshot snapshot) {
+        OpModeMeta meta = metadata(name);
+        if (meta == null || meta.flavor != OpModeMeta.Flavor.AUTONOMOUS) {
+            return OpModeLifecycleService.BackendResult.rejected(
+                    "opmode_not_found",
+                    "No registered Autonomous OpMode named " + name);
+        }
         if (snapshot.phase != OpModeLifecycleService.Phase.INIT
                 || !same(name, snapshot.activeName)
                 || !same(name, manager.getActiveOpModeName())) {
@@ -101,6 +108,12 @@ public final class FtcOpModeBridge
             OpModeLifecycleService.Snapshot snapshot) {
         if (snapshot.phase == OpModeLifecycleService.Phase.STOPPED) {
             return OpModeLifecycleService.BackendResult.accepted();
+        }
+        OpModeMeta meta = metadata(name);
+        if (meta == null || meta.flavor != OpModeMeta.Flavor.AUTONOMOUS) {
+            return OpModeLifecycleService.BackendResult.rejected(
+                    "opmode_not_found",
+                    "No registered Autonomous OpMode named " + name);
         }
         if (!same(name, snapshot.activeName) || !same(name, manager.getActiveOpModeName())) {
             return OpModeLifecycleService.BackendResult.rejected(
