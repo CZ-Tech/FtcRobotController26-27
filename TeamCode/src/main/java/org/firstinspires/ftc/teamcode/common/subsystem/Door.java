@@ -7,7 +7,15 @@ import com.qualcomm.robotcore.hardware.ServoImplEx;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 
-public class Door {
+public class Door extends ScheduledSubsystem<Door.Schedule> {
+    public interface Schedule extends ScheduleApi<Schedule> {
+        Schedule spin(double power);
+        Schedule spin();
+        Schedule stop();
+        Schedule standBy();
+        Schedule end();
+    }
+
     public Robot robot;
 
     public CRServoImplEx doorWheel;
@@ -17,6 +25,7 @@ public class Door {
     public static double DOOR_STANDBY = 1980;//推出去
 
     public Door(Robot robot){
+        super(Schedule.class);
         this.robot = robot;
 //        doorController = robot.hardwareMap.get(ServoImplEx.class, Globals.doorController);
         doorWheel = robot.hardwareMap.get(CRServoImplEx.class, Globals.doorWheel);

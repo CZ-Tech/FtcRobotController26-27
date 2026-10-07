@@ -21,7 +21,17 @@ import org.firstinspires.ftc.teamcode.common.Robot;
 
 import java.util.Arrays;
 
-public class Shooter {
+public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
+    public interface Schedule extends ScheduleApi<Schedule> {
+        Schedule back();
+        Schedule shoot(double distanceMM);
+        Schedule staticShoot(double targetRPM);
+        Schedule shoot(int i, double leftRPM, double rightRPM);
+        Schedule shoot();
+        Schedule stop();
+        Schedule setPower(double power);
+    }
+
     private Robot robot;
     public DcMotorEx left, right;
     public static double RPM = 3500 ;
@@ -49,6 +59,7 @@ public class Shooter {
      * @param robot
      */
     public Shooter(Robot robot) {
+        super(Schedule.class);
         this.robot = robot;
         left = robot.hardwareMap.get(DcMotorEx.class, Globals.leftShooter);
         right = robot.hardwareMap.get(DcMotorEx.class, Globals.rightShooter);

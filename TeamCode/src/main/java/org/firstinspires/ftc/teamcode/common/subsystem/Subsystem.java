@@ -21,4 +21,24 @@ public class Subsystem {
         this.door = new Door(robot);
         this.classifier = new Classifier(robot);
     }
+
+    /** Advance every subsystem scheduler once from the OpMode/control thread. */
+    public void update() {
+        intaker.update();
+        thrower.update();
+        shooter.update();
+        belt.update();
+        door.update();
+        classifier.update();
+    }
+
+    /** Invalidate all draft, pending and active subsystem schedules. */
+    public void cancelAllSchedules() {
+        intaker.cancelSchedule();
+        thrower.cancelSchedule();
+        shooter.cancelSchedule();
+        belt.cancelSchedule();
+        door.cancelSchedule();
+        classifier.cancelSchedule();
+    }
 }
