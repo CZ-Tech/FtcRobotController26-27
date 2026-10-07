@@ -73,6 +73,11 @@ public final class SessionLease {
         return true;
     }
 
+    /** Local administrative revoke. Not exposed as a network endpoint. */
+    public synchronized void revoke() {
+        clear();
+    }
+
     public synchronized boolean isOwned() {
         expireIfNeeded(now());
         return token != null;
