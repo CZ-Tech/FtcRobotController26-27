@@ -14,7 +14,7 @@ import org.firstinspires.ftc.teamcode.common.network.ControlRequest;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkService;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkV2;
-import org.firstinspires.ftc.teamcode.common.network.RouteStore;
+import org.firstinspires.ftc.teamcode.common.network.RouteRepository;
 
 /**
  * Network-controlled autonomous OpMode.
@@ -60,7 +60,7 @@ public class HttpAuto extends LinearOpMode {
                 if (request != null) {
                     switch (request.type) {
                         case EXECUTE_SAVED_PATH: {
-                            RouteStore.Entry route = network.routes.get(request.pathName);
+                            RouteRepository.Entry route = network.routes.get(request.pathName);
                             if (route != null) {
                                 SplineTrajectoryLoader.ExecutionResult started =
                                         loader.start(route.json);
