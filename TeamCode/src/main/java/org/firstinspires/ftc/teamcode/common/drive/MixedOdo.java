@@ -22,6 +22,7 @@ import org.firstinspires.ftc.teamcode.common.vision.WebCamAprilTagLocate;
  */
 public class MixedOdo {
     Robot robot;
+    private final boolean useVisionLocate;
     // ==========================================
     // 跨 OpMode 全局静态偏移量记忆
     // ==========================================
@@ -37,7 +38,12 @@ public class MixedOdo {
     private Pose2D currentFieldPose = new Pose2D(DistanceUnit.METER, 0, 0, AngleUnit.RADIANS, 0);
 
     public MixedOdo(Robot robot) {
+        this(robot, UseVisionLocate);
+    }
+
+    public MixedOdo(Robot robot, boolean useVisionLocate) {
         this.robot = robot;
+        this.useVisionLocate = useVisionLocate;
         this.pinpoint = robot.hardwareMap.get(GoBildaPinpointDriver.class, Globals.odoName);
 
         pinpoint.setOffsets(Globals.odoXOffset, Globals.odoYOffset, DistanceUnit.MM);
@@ -48,7 +54,7 @@ public class MixedOdo {
         // TeleOp 时不要调用硬件重置，让 Pinpoint 顺着 Auto 继续算。
         if (!isPoseInitialized) {
             pinpoint.resetPosAndIMU();
-            if (UseVisionLocate) {
+            if (useVisionLocate) {
                 this.visualLocater = new WebCamAprilTagLocate(robot.hardwareMap.get(WebcamName.class, Globals.logiC270));
             } else {
                 isPoseInitialized = true;
@@ -61,7 +67,7 @@ public class MixedOdo {
     }
 
     public void reCollaborate() {
-        if (UseVisionLocate) {
+        if (useVisionLocate) {
             isPoseInitialized = false;
             if (visualLocater == null) {
                 this.visualLocater = new WebCamAprilTagLocate(robot.hardwareMap.get(WebcamName.class, Globals.logiC270));
