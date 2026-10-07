@@ -35,7 +35,7 @@ public abstract class ScheduledSubsystem<A> {
     private final Object draftLock = new Object();
 
     private DraftSchedule currentDraft;
-    private BuiltSchedule active;
+    private volatile BuiltSchedule active;
     private final A cancelledProxy;
 
     protected ScheduledSubsystem(Class<A> apiType) {
@@ -61,17 +61,18 @@ public abstract class ScheduledSubsystem<A> {
      * Starts a new draft and immediately supersedes all previous work for this subsystem.
      */
     public final A schedule() {
-        final long nextGeneration = generation.incrementAndGet();
-
+        final DraftSchedule draft;
         synchronized (draftLock) {
+            final long nextGeneration = generation.incrementAndGet();
             if (currentDraft != null) currentDraft.cancelled = true;
-            currentDraft = new DraftSchedule(nextGeneration);
+            draft = new DraftSchedule(nextGeneration);
+            currentDraft = draft;
+
+            BuiltSchedule dropped = incoming.getAndSet(null);
+            if (dropped != null) dropped.cancelled = true;
         }
 
-        BuiltSchedule dropped = incoming.getAndSet(null);
-        if (dropped != null) dropped.cancelled = true;
-
-        return createDraftProxy(currentDraft);
+        return createDraftProxy(draft);
     }
 
     /**
@@ -116,13 +117,14 @@ public abstract class ScheduledSubsystem<A> {
      * runs from the next {@link #update()} when an active chain is observed stale.</p>
      */
     public final void cancelSchedule() {
-        generation.incrementAndGet();
         synchronized (draftLock) {
+            generation.incrementAndGet();
             if (currentDraft != null) currentDraft.cancelled = true;
             currentDraft = null;
+
+            BuiltSchedule dropped = incoming.getAndSet(null);
+            if (dropped != null) dropped.cancelled = true;
         }
-        BuiltSchedule dropped = incoming.getAndSet(null);
-        if (dropped != null) dropped.cancelled = true;
     }
 
     public final boolean hasActiveSchedule() {

@@ -6,6 +6,9 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ScheduledSubsystemTest {
@@ -190,5 +193,46 @@ public class ScheduledSubsystemTest {
     @Test(expected = IllegalStateException.class)
     public void scheduleApiMismatchFailsAtSubsystemConstruction() {
         new BrokenSubsystem(new AtomicLong());
+    }
+
+    @Test
+    public void concurrentScheduleCreationLeavesExactlyOneLiveNewestDraft() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        TestSubsystem subsystem = new TestSubsystem(clock);
+        CountDownLatch start = new CountDownLatch(1);
+        List<TestSchedule> handles = new ArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+
+        for (int i = 0; i < 16; i++) {
+            final int value = i + 1;
+            Thread thread = new Thread(() -> {
+                try {
+                    start.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                TestSchedule handle = subsystem.schedule().set(value);
+                synchronized (handles) {
+                    handles.add(handle);
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        start.countDown();
+        for (Thread thread : threads) thread.join();
+
+        int live = 0;
+        synchronized (handles) {
+            for (TestSchedule handle : handles) {
+                if (!handle.isCancelled()) live++;
+            }
+        }
+        assertEquals(1, live);
+
+        subsystem.update();
+        assertTrue(subsystem.value >= 1 && subsystem.value <= 16);
     }
 }
