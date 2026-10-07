@@ -1,11 +1,9 @@
 package org.firstinspires.ftc.mockrobot;
 
-import org.firstinspires.ftc.teamcode.common.network.ControlGate;
-import org.firstinspires.ftc.teamcode.common.network.ControlRequest;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
 import org.firstinspires.ftc.teamcode.common.network.RouteRepository;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 
 import java.util.Random;
 import java.util.concurrent.Executors;
@@ -56,7 +54,6 @@ public final class MockSimulationEngine implements AutoCloseable {
 
     private final MockRouteStore routes;
     private final MockSettings settings;
-    private final ControlGate control;
     private final ExecutionStateStore execution;
     private final RobotRuntimeStore runtime;
     private final OpModeLifecycleService opModes;
@@ -97,13 +94,11 @@ public final class MockSimulationEngine implements AutoCloseable {
     public MockSimulationEngine(
             MockRouteStore routes,
             MockSettings settings,
-            ControlGate control,
             ExecutionStateStore execution,
             RobotRuntimeStore runtime,
             OpModeLifecycleService opModes) {
         this.routes = routes;
         this.settings = settings;
-        this.control = control;
         this.execution = execution;
         this.runtime = runtime;
         this.opModes = opModes;
@@ -146,7 +141,6 @@ public final class MockSimulationEngine implements AutoCloseable {
     }
 
     public synchronized void onStart(MockOpModeProfile profile) {
-        control.activate();
         execution.publish(ExecutionStateStore.State.IDLE, 0, null);
         String selected = profile.routeName();
         if (selected != null && !selected.isBlank()) {
@@ -156,7 +150,6 @@ public final class MockSimulationEngine implements AutoCloseable {
 
     public synchronized void onStop() {
         cancelPlan();
-        control.deactivate();
         execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
         hasIdeal = false;
     }
@@ -238,15 +231,6 @@ public final class MockSimulationEngine implements AutoCloseable {
         long now = System.nanoTime();
         double dt = Math.min(0.1, Math.max(0.001, (now - lastTickNanos) / 1e9));
         lastTickNanos = now;
-
-        ControlRequest request = control.pollLatest();
-        if (request != null) {
-            if (request.type == ControlRequest.Type.EXECUTE_SAVED_PATH) {
-                startSavedRoute(request.pathName, request.id, false);
-            } else if (request.type == ControlRequest.Type.EXECUTE_INLINE_PATH) {
-                startInlineRoute(request.inlineJson, request.id, "inline", false);
-            }
-        }
 
         double routeSeconds = 0;
         double routeTotal = plan == null ? 0 : plan.totalTime();

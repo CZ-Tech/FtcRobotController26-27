@@ -9,3 +9,4 @@ pluginManagement {
 include ':FtcRobotController'
 include ':TeamCode'
 include ':MockRobot'
+include ':Shared'

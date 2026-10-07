@@ -1,19 +1,16 @@
 package org.firstinspires.ftc.mockrobot;
 
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog;
-import org.firstinspires.ftc.teamcode.common.network.ControlGate;
-import org.firstinspires.ftc.teamcode.common.network.ControlMailbox;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotApiRouter;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
 import org.firstinspires.ftc.teamcode.common.network.SessionLease;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.RobotHttpServer;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 
 /** Composition root for the standalone desktop virtual Robot Controller. */
 public final class MockRobotRuntime implements AutoCloseable {
@@ -22,8 +19,6 @@ public final class MockRobotRuntime implements AutoCloseable {
     public final MockSettings settings = new MockSettings();
     public final SessionLease session = new SessionLease();
     public final MockRouteStore routes;
-    public final ControlMailbox mailbox = new ControlMailbox();
-    public final ControlGate control = new ControlGate(mailbox);
     public final ExecutionStateStore execution = new ExecutionStateStore();
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
     public final CommandCatalog commands = new CommandCatalog();
@@ -42,36 +37,23 @@ public final class MockRobotRuntime implements AutoCloseable {
         routes = new MockRouteStore(routeFile);
         routes.seedIfEmpty();
 
-        List<MockOpModeProfile> profiles = List.of(
-                new MockOpModeProfile("Mock Idle Auto", "Mock", null, false),
-                new MockOpModeProfile("Mock Straight Auto", "Mock", "Mock Straight", true),
-                new MockOpModeProfile("Mock Spline Auto", "Mock", "Mock Spline", true),
-                new MockOpModeProfile(
-                        "Mock Figure Eight Auto",
-                        "Mock",
-                        "Mock Figure Eight",
-                        true));
-
         simulation = new MockSimulationEngine(
                 routes,
                 settings,
-                control,
                 execution,
                 runtime,
                 opModes);
         opModeBackend = new MockOpModeBackend(
                 opModes,
                 simulation,
-                control,
                 execution,
-                profiles);
+                routes);
         opModes.attach(opModeBackend);
         simulation.setAutoStopCallback(opModeBackend::externalStop);
 
         RobotApiRouter router = new RobotApiRouter(
                 session,
                 routes,
-                control,
                 execution,
                 runtime,
                 commands,

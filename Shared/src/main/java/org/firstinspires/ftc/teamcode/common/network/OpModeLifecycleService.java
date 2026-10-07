@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.common.opmode;
+package org.firstinspires.ftc.teamcode.common.network;
 
 import java.util.Collections;
 import java.util.List;

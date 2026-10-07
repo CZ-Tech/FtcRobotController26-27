@@ -1,7 +1,6 @@
 package org.firstinspires.ftc.teamcode.common.network;
 
 import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -64,7 +63,7 @@ public final class RobotEventStream {
                         + SessionLease.DEFAULT_TIMEOUT_MS + "}");
 
         while (!Thread.currentThread().isInterrupted()) {
-            long now = android.os.SystemClock.elapsedRealtime();
+            long now = System.nanoTime() / 1_000_000L;
             if (!sessionLease.touch(sessionToken)) return;
 
             RobotRuntimeStore.Snapshot runtime = runtimeStore.latest();

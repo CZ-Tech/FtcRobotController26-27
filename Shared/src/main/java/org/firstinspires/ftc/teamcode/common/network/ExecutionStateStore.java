@@ -8,7 +8,6 @@ public final class ExecutionStateStore {
     public enum State {
         NOT_READY,
         IDLE,
-        QUEUED,
         RUNNING
     }
 

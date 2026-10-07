@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpModeManagerImpl;
 
 import org.firstinspires.ftc.robotcore.internal.opmode.OpModeMeta;
 import org.firstinspires.ftc.robotcore.internal.opmode.RegisteredOpModes;
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 
 import java.util.ArrayList;
 import java.util.Comparator;

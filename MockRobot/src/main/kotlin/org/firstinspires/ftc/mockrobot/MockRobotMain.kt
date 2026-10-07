@@ -26,10 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -70,7 +68,7 @@ import androidx.compose.ui.unit.DpSize
 import kotlinx.coroutines.delay
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore
 import org.firstinspires.ftc.teamcode.common.network.RouteRepository
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService
 import java.awt.Desktop
 import java.nio.file.Files
 import java.nio.file.Path as NioPath
@@ -286,6 +284,7 @@ private fun FieldCard(
     snapshot: UiSnapshot,
     modifier: Modifier = Modifier,
 ) {
+    var dragPosition by remember { mutableStateOf<Offset?>(null) }
     Card(modifier = modifier, shape = RoundedCornerShape(12.dp)) {
         BoxWithConstraints(
             modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -296,12 +295,13 @@ private fun FieldCard(
                 modifier = Modifier
                     .size(fieldDp)
                     .background(Color(0xFF222222))
-                    .pointerInput(snapshot.simulation.x, snapshot.simulation.y) {
+                    .pointerInput(robot) {
                         detectDragGestures(
                             onDragStart = { start ->
+                                val simulation = robot.simulation.snapshot()
                                 val robotPx = logicalToScreen(
-                                    snapshot.simulation.x,
-                                    snapshot.simulation.y,
+                                    simulation.x,
+                                    simulation.y,
                                     size.width.toFloat(),
                                     size.height.toFloat(),
                                 )
@@ -311,11 +311,20 @@ private fun FieldCard(
                                     ) < 50.0
                                 ) {
                                     robot.simulation.beginDrag()
+                                    dragPosition = start
                                 }
                             },
-                            onDragEnd = { robot.simulation.endDrag() },
-                            onDragCancel = { robot.simulation.endDrag() },
+                            onDragEnd = {
+                                robot.simulation.endDrag()
+                                dragPosition = null
+                            },
+                            onDragCancel = {
+                                robot.simulation.endDrag()
+                                dragPosition = null
+                            },
                             onDrag = { change, _ ->
+                                if (dragPosition == null) return@detectDragGestures
+                                dragPosition = change.position
                                 val logical = screenToLogical(
                                     change.position.x,
                                     change.position.y,
@@ -375,7 +384,7 @@ private fun FieldCard(
                         )
                     }
 
-                    val robotCenter = logicalToScreen(
+                    val robotCenter = dragPosition ?: logicalToScreen(
                         snapshot.simulation.x,
                         snapshot.simulation.y,
                         size.width,
@@ -465,47 +474,46 @@ private fun ControlPanel(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RunControls(robot: MockRobotRuntime, snapshot: UiSnapshot) {
-    var selectedName by remember { mutableStateOf(robot.opModeBackend.profiles().first().name) }
+    var selectedName by remember {
+        mutableStateOf(robot.opModeBackend.profiles().firstOrNull()?.name ?: "")
+    }
     var opModeExpanded by remember { mutableStateOf(false) }
-    var routeExpanded by remember { mutableStateOf(false) }
 
-    val profile = robot.opModeBackend.profile(selectedName)
-        ?: robot.opModeBackend.profiles().first()
-    val routeNames = snapshot.routes.map { it.name }
-    var routeName by remember(selectedName, snapshot.routes) {
-        mutableStateOf(profile.routeName() ?: "")
+    val profiles = robot.opModeBackend.profiles()
+    LaunchedEffect(snapshot.routes) {
+        if (selectedName.isBlank() || profiles.none { it.name == selectedName }) {
+            selectedName = profiles.firstOrNull()?.name ?: ""
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Autonomous", style = MaterialTheme.typography.titleMedium)
 
-        ExposedDropdownMenuBox(
-            expanded = opModeExpanded,
-            onExpandedChange = { opModeExpanded = it },
-        ) {
-            OutlinedTextField(
-                value = selectedName,
-                onValueChange = {},
-                readOnly = true,
-                trailingIcon = {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = opModeExpanded)
-                },
-                modifier = Modifier.fillMaxWidth()
-                    .menuAnchor(),
-            )
-            ExposedDropdownMenu(
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { opModeExpanded = !opModeExpanded },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    selectedName.ifBlank { "无可用路径 OpMode" },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(if (opModeExpanded) "▲" else "▼")
+            }
+            DropdownMenu(
                 expanded = opModeExpanded,
                 onDismissRequest = { opModeExpanded = false },
+                modifier = Modifier.widthIn(min = 280.dp),
             ) {
-                robot.opModeBackend.profiles().forEach { item ->
+                profiles.forEach { item ->
                     DropdownMenuItem(
                         text = { Text(item.name) },
                         onClick = {
                             selectedName = item.name
-                            routeName = item.routeName() ?: ""
                             opModeExpanded = false
                         },
                     )
@@ -513,59 +521,14 @@ private fun RunControls(robot: MockRobotRuntime, snapshot: UiSnapshot) {
             }
         }
 
-        ExposedDropdownMenuBox(
-            expanded = routeExpanded,
-            onExpandedChange = { routeExpanded = it },
-        ) {
-            OutlinedTextField(
-                value = routeName.ifBlank { "无路径" },
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("模拟路径") },
-                trailingIcon = {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = routeExpanded)
-                },
-                modifier = Modifier.fillMaxWidth()
-                    .menuAnchor(),
-            )
-            ExposedDropdownMenu(
-                expanded = routeExpanded,
-                onDismissRequest = { routeExpanded = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("无路径") },
-                    onClick = {
-                        routeName = ""
-                        profile.setRouteName(null)
-                        routeExpanded = false
-                    },
-                )
-                routeNames.forEach { name ->
-                    DropdownMenuItem(
-                        text = { Text(name) },
-                        onClick = {
-                            routeName = name
-                            profile.setRouteName(name)
-                            routeExpanded = false
-                        },
-                    )
-                }
-            }
-        }
-
-        LabeledCheckbox(
-            checked = profile.autoStop(),
-            text = "路径结束自动 STOP",
-            onCheckedChange = profile::setAutoStop,
-        )
-
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
                 onClick = { robot.opModeBackend.externalInit(selectedName) },
-                enabled = snapshot.opMode.phase == OpModeLifecycleService.Phase.STOPPED,
+                enabled = selectedName.isNotBlank()
+                    && snapshot.opMode.phase == OpModeLifecycleService.Phase.STOPPED,
             ) { Text("INIT") }
             Button(
                 onClick = { robot.opModeBackend.externalStart() },
@@ -598,14 +561,20 @@ private fun RunControls(robot: MockRobotRuntime, snapshot: UiSnapshot) {
             } ?: "—",
         )
 
-        if (routeName.isNotBlank()) {
+        if (selectedName.isNotBlank()) {
             OutlinedButton(
-                onClick = { robot.simulation.snapToRouteStart(routeName) },
+                onClick = { robot.simulation.snapToRouteStart(selectedName) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("机器人移到路径起点")
             }
         }
+
+        Text(
+            "每条保存路径就是一个 Autonomous OpMode；选择路径名后 INIT，START 会立即执行该路径。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         PoseEditor(robot, snapshot)
 

@@ -9,6 +9,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpModeRegistrar;
 
 import org.firstinspires.ftc.ftccommon.external.OnCreateEventLoop;
 import org.firstinspires.ftc.teamcode.common.opmode.FtcOpModeBridge;
+import org.firstinspires.ftc.teamcode.common.opmode.RouteOpModeRegistrar;
 
 /**
  * Process-wide owner of the hardware-free V2 network stack.
@@ -29,6 +30,7 @@ public final class RobotNetworkService {
         if (instance != null) return;
 
         RobotNetworkV2 network = new RobotNetworkV2(context.getApplicationContext());
+        network.routes.setChangeListener(() -> RouteOpModeRegistrar.onRoutesChanged(network.opModes));
         try {
             network.start();
             instance = network;

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 import org.junit.Test;
 
 import java.util.Arrays;

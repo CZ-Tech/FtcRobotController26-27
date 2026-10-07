@@ -4,7 +4,6 @@ import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpRequest;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpResponse;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
 import org.json.JSONObject;
 
 import java.util.List;
@@ -15,7 +14,6 @@ public final class RobotApiRouter implements HttpHandler {
 
     private final SessionLease sessionLease;
     private final RouteRepository routeStore;
-    private final ControlGate controlGate;
     private final ExecutionStateStore executionState;
     private final RobotRuntimeStore runtimeStore;
     private final CommandCatalog commandCatalog;
@@ -24,14 +22,12 @@ public final class RobotApiRouter implements HttpHandler {
 
     public RobotApiRouter(SessionLease sessionLease,
                           RouteRepository routeStore,
-                          ControlGate controlGate,
                           ExecutionStateStore executionState,
                           RobotRuntimeStore runtimeStore,
                           CommandCatalog commandCatalog,
                           OpModeLifecycleService opModes) {
         this.sessionLease = sessionLease;
         this.routeStore = routeStore;
-        this.controlGate = controlGate;
         this.executionState = executionState;
         this.runtimeStore = runtimeStore;
         this.commandCatalog = commandCatalog;
@@ -134,15 +130,6 @@ public final class RobotApiRouter implements HttpHandler {
         if ((PREFIX + "/execution").equals(path)) {
             if ("GET".equals(request.method)) {
                 exchange.send(HttpResponse.json(200, executionState.snapshot().toJson()));
-            } else {
-                methodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if ((PREFIX + "/executions").equals(path)) {
-            if ("POST".equals(request.method)) {
-                handleExecutionRequest(exchange);
             } else {
                 methodNotAllowed(exchange);
             }
@@ -275,46 +262,6 @@ public final class RobotApiRouter implements HttpHandler {
         }
 
         methodNotAllowed(exchange);
-    }
-
-    private void handleExecutionRequest(HttpExchange exchange) throws Exception {
-        JSONObject body = new JSONObject(exchange.request.bodyUtf8());
-        String type = body.optString("type", "");
-        ControlRequest queued;
-        String subject;
-        if ("saved".equals(type)) {
-            String path = body.optString("path", "");
-            if (path.isEmpty() || routeStore.get(path) == null) {
-                exchange.send(HttpResponse.json(
-                        404, "{\"error\":\"route_not_found\"}"));
-                return;
-            }
-            queued = controlGate.submitSavedPath(path);
-            subject = path;
-        } else if ("inline".equals(type)) {
-            Object trajectory = body.opt("trajectory");
-            if (trajectory == null || trajectory == JSONObject.NULL) {
-                exchange.send(HttpResponse.json(
-                        400, "{\"error\":\"missing_trajectory\"}"));
-                return;
-            }
-            queued = controlGate.submitInlinePath(
-                    trajectory instanceof String ? (String) trajectory : trajectory.toString());
-            subject = "inline";
-        } else {
-            exchange.send(HttpResponse.json(
-                    400, "{\"error\":\"invalid_execution_type\"}"));
-            return;
-        }
-
-        if (queued == null) {
-            exchange.send(HttpResponse.json(200,
-                    "{\"accepted\":false,\"dropped\":true,\"reason\":\"no_active_opmode\"}"));
-            return;
-        }
-        executionState.publish(ExecutionStateStore.State.QUEUED, queued.id, subject);
-        exchange.send(HttpResponse.json(
-                202, "{\"accepted\":true,\"requestId\":" + queued.id + ",\"state\":\"QUEUED\"}"));
     }
 
     private void handleOpModeList(HttpExchange exchange) throws Exception {

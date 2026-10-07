@@ -1,0 +1,13 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+dependencies {
+    // Android provides org.json at runtime. MockRobot provides its own JVM implementation.
+    compileOnly 'org.json:json:20240303'
+}

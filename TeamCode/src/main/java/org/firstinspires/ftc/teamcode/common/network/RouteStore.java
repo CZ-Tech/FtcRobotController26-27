@@ -27,6 +27,7 @@ public final class RouteStore implements RouteRepository {
     private final SharedPreferences preferences;
     private final TreeMap<String, RouteRepository.Entry> routes = new TreeMap<>();
     private final AtomicLong changeRevision = new AtomicLong(1);
+    private volatile Runnable changeListener;
 
     public RouteStore(Context context) {
         if (context == null) throw new IllegalArgumentException("context == null");
@@ -70,6 +71,7 @@ public final class RouteStore implements RouteRepository {
                 .commit();
         routes.put(name, next);
         changeRevision.incrementAndGet();
+        notifyChanged();
         return new RouteRepository.PutResult(true, false, next);
     }
 
@@ -85,7 +87,12 @@ public final class RouteStore implements RouteRepository {
                 .commit();
         routes.remove(name);
         changeRevision.incrementAndGet();
+        notifyChanged();
         return true;
+    }
+
+    public void setChangeListener(Runnable listener) {
+        changeListener = listener;
     }
 
     /** Monotonic process-local signal used by SSE to announce manifest changes. */
@@ -125,6 +132,11 @@ public final class RouteStore implements RouteRepository {
                     name,
                     new RouteRepository.Entry(name, json, Math.max(1, revision)));
         }
+    }
+
+    private void notifyChanged() {
+        Runnable listener = changeListener;
+        if (listener != null) listener.run();
     }
 
     private static void validateName(String name) {

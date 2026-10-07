@@ -118,6 +118,6 @@ public final class SessionLease {
     }
 
     private static long now() {
-        return android.os.SystemClock.elapsedRealtime();
+        return System.nanoTime() / 1_000_000L;
     }
 }

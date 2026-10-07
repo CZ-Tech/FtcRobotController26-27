@@ -1,7 +1,5 @@
 package org.firstinspires.ftc.teamcode.common.network.http;
 
-import android.util.Log;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,6 +11,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Small concurrent HTTP/1.1 server for the robot controller.
@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * package communicates with the robot control thread through data-only stores/mailboxes.</p>
  */
 public final class RobotHttpServer {
-    private static final String TAG = "RobotHttpServer";
+    private static final Logger LOGGER = Logger.getLogger(RobotHttpServer.class.getName());
 
     private final int port;
     private final HttpHandler handler;
@@ -55,7 +55,7 @@ public final class RobotHttpServer {
         acceptThread.setDaemon(true);
         acceptThread.setPriority(Thread.MIN_PRIORITY);
         acceptThread.start();
-        Log.i(TAG, "Listening on port " + port);
+        LOGGER.info("Listening on port " + port);
     }
 
     public synchronized void stop() {
@@ -82,9 +82,9 @@ public final class RobotHttpServer {
                 socket.setSoTimeout(5000);
                 workers.execute(() -> handleConnection(socket));
             } catch (SocketException e) {
-                if (running.get()) Log.e(TAG, "accept failed", e);
+                if (running.get()) LOGGER.log(Level.SEVERE, "accept failed", e);
             } catch (Exception e) {
-                if (running.get()) Log.e(TAG, "accept loop error", e);
+                if (running.get()) LOGGER.log(Level.SEVERE, "accept loop error", e);
             }
         }
     }
@@ -117,14 +117,14 @@ public final class RobotHttpServer {
                             500, "{\"error\":\"handler_did_not_respond\"}"));
                 }
             } catch (Exception e) {
-                Log.e(TAG, "request handler failed: " + request.method + " " + request.path, e);
+                LOGGER.log(Level.SEVERE, "request handler failed: " + request.method + " " + request.path, e);
                 if (!exchange.isCommitted()) {
                     exchange.send(HttpResponse.json(
                             500, "{\"error\":\"internal_error\"}"));
                 }
             }
         } catch (Exception e) {
-            Log.d(TAG, "connection closed: " + e.getMessage());
+            LOGGER.fine("connection closed: " + e.getMessage());
         }
     }
 

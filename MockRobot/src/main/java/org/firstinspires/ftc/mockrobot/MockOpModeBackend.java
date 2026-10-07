@@ -1,38 +1,33 @@
 package org.firstinspires.ftc.mockrobot;
 
-import org.firstinspires.ftc.teamcode.common.network.ControlGate;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
+import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /** Immediate desktop implementation of the same lifecycle backend used by FtcOpModeBridge. */
 public final class MockOpModeBackend implements OpModeLifecycleService.Backend {
     private final OpModeLifecycleService service;
     private final MockSimulationEngine simulation;
-    private final ControlGate control;
     private final ExecutionStateStore execution;
-    private final List<MockOpModeProfile> profiles;
+    private final MockRouteStore routes;
 
     public MockOpModeBackend(
             OpModeLifecycleService service,
             MockSimulationEngine simulation,
-            ControlGate control,
             ExecutionStateStore execution,
-            List<MockOpModeProfile> profiles) {
+            MockRouteStore routes) {
         this.service = service;
         this.simulation = simulation;
-        this.control = control;
         this.execution = execution;
-        this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
+        this.routes = routes;
     }
 
     @Override
     public List<OpModeLifecycleService.Descriptor> listAutonomous() {
         List<OpModeLifecycleService.Descriptor> result = new ArrayList<>();
-        for (MockOpModeProfile profile : profiles) {
+        for (MockOpModeProfile profile : profiles()) {
             result.add(new OpModeLifecycleService.Descriptor(profile.name, profile.group));
         }
         return result;
@@ -57,7 +52,6 @@ public final class MockOpModeBackend implements OpModeLifecycleService.Backend {
                     "opmode_not_stopped",
                     "Another OpMode is already initialized or running");
         }
-        control.deactivate();
         execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
         service.publishInit(name);
         simulation.onInit(profile);
@@ -119,20 +113,20 @@ public final class MockOpModeBackend implements OpModeLifecycleService.Backend {
     }
 
     public MockOpModeProfile profile(String name) {
-        if (name == null) return null;
-        for (MockOpModeProfile profile : profiles) {
-            if (profile.name.equals(name)) return profile;
-        }
-        return null;
+        if (name == null || routes.get(name) == null) return null;
+        return new MockOpModeProfile(name, "AzConductor", name, true);
     }
 
     public List<MockOpModeProfile> profiles() {
-        return profiles;
+        List<MockOpModeProfile> result = new ArrayList<>();
+        for (org.firstinspires.ftc.teamcode.common.network.RouteRepository.Entry route : routes.list()) {
+            result.add(new MockOpModeProfile(route.name, "AzConductor", route.name, true));
+        }
+        return result;
     }
 
     private void stopNow() {
         simulation.onStop();
-        control.deactivate();
         execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
         service.publishStopped();
         MockLog.info("OpMode", "STOP");

@@ -3,7 +3,6 @@ package org.firstinspires.ftc.teamcode.common.network;
 import android.content.Context;
 
 import org.firstinspires.ftc.teamcode.common.network.http.RobotHttpServer;
-import org.firstinspires.ftc.teamcode.common.opmode.OpModeLifecycleService;
 
 import java.io.IOException;
 
@@ -18,8 +17,6 @@ public final class RobotNetworkV2 {
 
     public final SessionLease session = new SessionLease();
     public final RouteStore routes;
-    public final ControlMailbox mailbox = new ControlMailbox();
-    public final ControlGate control = new ControlGate(mailbox);
     public final ExecutionStateStore execution = new ExecutionStateStore();
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
     public final CommandCatalog commands = new CommandCatalog();
@@ -34,7 +31,7 @@ public final class RobotNetworkV2 {
     public RobotNetworkV2(Context context, int port) {
         routes = new RouteStore(context);
         RobotApiRouter router = new RobotApiRouter(
-                session, routes, control, execution, runtime, commands, opModes);
+                session, routes, execution, runtime, commands, opModes);
         server = new RobotHttpServer(port, router);
     }
 
