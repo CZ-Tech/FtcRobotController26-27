@@ -127,7 +127,7 @@ public class SplineTrajectoryLoaderTest {
         assertTrue(loader.isFinished());
         assertFalse(loader.isRunning());
         assertEquals(1, driver.updateCalls);
-        assertEquals(0, driver.cancelCalls);
+        assertEquals(1, driver.cancelCalls); // route end stops the drivetrain once
     }
 
     @Test
@@ -166,6 +166,60 @@ public class SplineTrajectoryLoaderTest {
         loader.update(); // start move to point 2
         assertEquals(2, driver.startMoveCalls);
         assertEquals(2.0, driver.lastStartedPoint.x, 0.0);
+        assertEquals(1, driver.cancelCalls); // failed move must be stopped before continuing
+    }
+
+    @Test
+    public void intermediateWaypointDoesNotStopMotor() throws Exception {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        driver.results.add(segment(SplineTracker.SegmentStatus.ARRIVED));
+        driver.results.add(segment(SplineTracker.SegmentStatus.ARRIVED));
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start(threeMovePath());
+        loader.update(); // begin
+        loader.update(); // move 1 start
+        loader.update(); // move 1 arrives
+        assertEquals(0, driver.cancelCalls);
+        loader.update(); // move 2 starts without a stop
+        assertEquals(0, driver.cancelCalls);
+        loader.update(); // route completes
+        assertEquals(1, driver.cancelCalls);
+    }
+
+    @Test
+    public void waitAfterMoveStopsExactlyOnceBeforeWaiting() throws Exception {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        driver.results.add(segment(SplineTracker.SegmentStatus.ARRIVED));
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start("[{\"x\":0,\"y\":0},{\"x\":5,\"y\":0},{\"wait\":0}]");
+        loader.update();
+        loader.update();
+        loader.update(); // move arrives; next step is wait
+        assertEquals(1, driver.cancelCalls);
+        loader.update(); // wait starts
+        loader.update(); // wait ends
+        assertEquals(1, driver.cancelCalls);
+    }
+
+    @Test
+    public void brakingFieldsAreForwardedAndInvalidZonesRejected() throws Exception {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        String path = "[{\"x\":0,\"y\":0},"
+                + "{\"x\":20,\"y\":0,\"maxPower\":0.7,\"maxSpeed\":24,"
+                + "\"endSpeed\":0,\"brakeZoneIn\":12,\"brakeForwardPower\":0.2}]";
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING, loader.start(path).status);
+        loader.update();
+        loader.update();
+        assertEquals(0.7, driver.lastStartedPoint.maxPower, 0.0);
+        assertEquals(24, driver.lastStartedPoint.maxSpeed, 0.0);
+        assertEquals(0, driver.lastStartedPoint.endSpeed, 0.0);
+        assertEquals(12, driver.lastStartedPoint.brakeZoneIn, 0.0);
+        assertEquals(0.2, driver.lastStartedPoint.brakeForwardPower, 0.0);
+
+        SplineTrajectoryLoader invalid = new SplineTrajectoryLoader(new FakeMotionDriver());
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR,
+                invalid.start("[{\"x\":0,\"y\":0,\"endSpeed\":0}]").status);
     }
 
     @Test
@@ -270,15 +324,26 @@ public class SplineTrajectoryLoaderTest {
         FakeMotionDriver driver = new FakeMotionDriver();
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
         loader.start(twoMovePath());
-        loader.update();
+        loader.update(); // begin path; does not start the motors
 
         SplineTrajectoryLoader.ExecutionResult replacement =
                 loader.start("[{\"wait\":0}]");
 
-        assertEquals(1, driver.cancelCalls);
+        assertEquals(0, driver.cancelCalls); // no motor output needs cancellation
         assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING, replacement.status);
         assertEquals(0, loader.getStepIndex());
         assertNull(loader.pollEvent());
+    }
+
+    @Test
+    public void replacingActiveMoveStopsItExactlyOnce() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start(twoMovePath());
+        loader.update(); // begin
+        loader.update(); // actively moving
+        loader.start("[{\"wait\":0}]");
+        assertEquals(1, driver.cancelCalls);
     }
 
     @Test

@@ -18,9 +18,9 @@ import org.firstinspires.ftc.teamcode.common.Robot;
  * <p>核心思想：路径进度完全由机器人在 Hermite spline 上的空间投影决定，
  * 不再由 wall-clock / timeline / look-ahead target point 推动。</p>
  *
- * <p>平移控制拆成两个互相独立的闭环：</p>
+ * <p>平移控制拆成两个互相独立的通道：</p>
  * <ul>
- *     <li>切向：速度 PID（默认 D=0，即 PI），负责“沿路径跑多快”</li>
+ *     <li>切向：默认直接功率，只有显式限速或末端制动时才调节功率</li>
  *     <li>法向：cross-track PID，负责“回到路径上”</li>
  * </ul>
  *
@@ -42,13 +42,34 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         public final double dx;
         public final double dy;
         public final double heading;
+        /** Segment ending at this point: cruise power in [0, 1]. */
+        public final double maxPower;
+        /** Optional segment speed ceiling in inch/s; NaN disables it. */
+        public final double maxSpeed;
+        /** Optional desired speed at this point in inch/s; NaN means no braking. */
+        public final double endSpeed;
+        /** Braking-zone length measured back from this point, in inches. */
+        public final double brakeZoneIn;
+        /** Positive-power cap inside that zone; NaN uses the tracker default. */
+        public final double brakeForwardPower;
 
         public PathPoint(double x, double y, double dx, double dy, double heading) {
+            this(x, y, dx, dy, heading, 1.0, Double.NaN, Double.NaN, 0.0, Double.NaN);
+        }
+
+        public PathPoint(double x, double y, double dx, double dy, double heading,
+                         double maxPower, double maxSpeed, double endSpeed,
+                         double brakeZoneIn, double brakeForwardPower) {
             this.x = x;
             this.y = y;
             this.dx = dx;
             this.dy = dy;
             this.heading = heading;
+            this.maxPower = maxPower;
+            this.maxSpeed = maxSpeed;
+            this.endSpeed = endSpeed;
+            this.brakeZoneIn = brakeZoneIn;
+            this.brakeForwardPower = brakeForwardPower;
         }
 
         @Override
@@ -73,37 +94,19 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     // Main tuning knobs
     // ---------------------------------------------------------------------
 
-    /** Normal cruise target speed, inch/s. */
-    public static double MAX_TANGENTIAL_VEL = 40.0;
+    /** Conservative *measured* effective deceleration in inch/s^2. Must be calibrated. */
+    public static double SAFE_BRAKE_DECEL = 30.0;
+    /** Negative tangential motor-power magnitude requested by the Bang-Bang brake. */
+    public static double BRAKE_REVERSE_POWER = 0.75;
+    /** Default positive power ceiling once inside a JSON braking zone. */
+    public static double DEFAULT_BRAKE_FORWARD_POWER = 0.30;
+    /** One-pole filter time constant, seconds; applies ONLY within a braking zone. */
+    public static double BRAKE_FILTER_TAU_S = 0.07;
 
-    /**
-     * Non-zero target speed at the very beginning of a segment.
-     * This avoids the old zero-speed / zero-error start deadlock.
-     */
-    public static double START_TARGET_VEL = 16.0;
-
-    /** Distance over which START_TARGET_VEL ramps to MAX_TANGENTIAL_VEL. */
-    public static double START_RAMP_DISTANCE = 6.0;
-
-    /** Distance before the end over which target speed is reduced. */
-    public static double BRAKE_DISTANCE = 16.0;
-
-    /**
-     * Near-zero-speed launch assist. This is intentionally NOT a calibrated kS;
-     * it is only a coarse floor used while the robot is commanded to move but is
-     * still almost stationary. Set to 0 to disable.
-     */
-    public static double START_MIN_POWER = 0.10;
-    public static double START_ASSIST_TARGET_VEL = 3.0;
-    public static double START_ASSIST_ACTUAL_VEL = 1.0;
-
-    // Tangential velocity PID. Default D=0 -> PI, usually easier to tune on FTC odometry.
-    // Units: Kp ~ power/(in/s), Ki ~ power/in, Kd ~ power/(in/s^2).
-    public static double K_VEL_P = 0.018;
-    public static double K_VEL_I = 0.008;
-    public static double K_VEL_D = 0.0;
-    public static double VEL_I_MAX_POWER = 0.35;
-    public static double VEL_D_ALPHA = 0.25; // EMA new-sample weight
+    /** Optional maxSpeed control; never active unless maxSpeed is in the JSON. */
+    public static double SPEED_LIMIT_KP = 0.075;
+    public static double SPEED_LIMIT_FULL_POWER_BELOW_IN_S = 6.0;
+    public static double SPEED_LIMIT_MAX_REVERSE_POWER = 0.35;
 
     // Cross-track PID. Integral defaults to zero; PD is normally sufficient.
     public static double K_CROSS_P = 0.10;
@@ -142,10 +145,15 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     // Completion / safety
     // ---------------------------------------------------------------------
     public static double END_U_THRESHOLD = 0.94;
-    public static double END_POS_THRESHOLD = 1.0;
-    public static double END_HEADING_THRESHOLD = 0.8;
-    public static double END_SPEED_THRESHOLD = 3.0;
-    public static double END_CAPTURE_DISTANCE = 8.0;
+    /** Maximum lateral offset at the finish line for a pass-through handoff. */
+    public static double PASS_MAX_CROSS_ERROR_IN = 8.0;
+    public static double STOP_POS_THRESHOLD_IN = 1.0;
+    public static double STOP_HEADING_THRESHOLD_DEG = 3.0;
+    public static double STOP_SPEED_THRESHOLD_IN_S = 3.0;
+    public static double STOP_CAPTURE_DISTANCE_IN = 3.0;
+    public static double STOP_CAPTURE_ENTRY_SPEED_IN_S = 6.0;
+    public static double STOP_CAPTURE_KP = 0.12;
+    public static double STOP_CAPTURE_MAX_POWER = 0.25;
     public static double DEGENERATE_ARC_THRESHOLD = 0.05;
 
     /** <= 0 disables stall detection. A stall is NOT treated as arrival. */
@@ -201,8 +209,17 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             new SegmentResult(SegmentStatus.IDLE, Double.NaN, Double.NaN);
     private int segmentIndex = -1;
 
-    private final PIDState velPID = new PIDState();
     private final PIDState crossPID = new PIDState();
+
+    private double segmentMaxPower = 1.0;
+    private double segmentMaxSpeed = Double.NaN;
+    private double segmentEndSpeed = Double.NaN;
+    private double segmentBrakeZoneIn;
+    private double segmentBrakeForwardPower;
+    private double brakeFilteredPower;
+    private boolean wasInBrakeZone;
+    private boolean stopCapture;
+    private boolean odometryVelocityReady;
 
     private final ElapsedTime stallTimer = new ElapsedTime();
 
@@ -501,6 +518,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         if (pose == null) throw new IllegalArgumentException("pose == null");
         if (start == null) throw new IllegalArgumentException("start == null");
 
+        stopMotor();
         setPose(pose);
         this.startPoint = new double[]{start.x, start.y, start.dx, start.dy};
         this.lx = start.x;
@@ -516,7 +534,9 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.segmentIndex = -1;
         this.lastSegmentStatus = SegmentStatus.IDLE;
         this.lastResult = new SegmentResult(SegmentStatus.IDLE, 0, 0);
+        crossPID.reset();
         clearActiveSegment();
+        rebaseVelocityEstimator();
     }
 
     /**
@@ -527,6 +547,17 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         if (target == null) throw new IllegalArgumentException("target == null");
 
         if (lastSegmentStatus == SegmentStatus.RUNNING) cancel();
+
+        segmentMaxPower = Range.clip(target.maxPower, 0, 1);
+        segmentMaxSpeed = target.maxSpeed;
+        segmentEndSpeed = target.endSpeed;
+        segmentBrakeZoneIn = target.brakeZoneIn;
+        segmentBrakeForwardPower = Double.isNaN(target.brakeForwardPower)
+                ? Range.clip(DEFAULT_BRAKE_FORWARD_POWER, 0, 1)
+                : Range.clip(target.brakeForwardPower, 0, 1);
+        segmentBrakeForwardPower = Math.min(segmentBrakeForwardPower, segmentMaxPower);
+        wasInBrakeZone = false;
+        stopCapture = false;
 
         this.lx = this.x;
         this.ly = this.y;
@@ -554,23 +585,31 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         activeSplineH = spline_fit(this.heading, 0, activeUnwrappedHeading, 0);
         activeArc = buildArcTable(activeSplineX, activeSplineY);
 
-        velPID.reset();
-        crossPID.reset();
         stallTimer.reset();
         lastSegmentStatus = SegmentStatus.RUNNING;
         activeHeadingOnly = activeArc.total < DEGENERATE_ARC_THRESHOLD;
 
+        // Continuous pass-through segments keep measured velocity and cross-track PID state.
+        // Explicit stops/waits clear the estimator via stopMotor().
+        if (!odometryVelocityReady) {
+            rebaseVelocityEstimator();
+            crossPID.reset();
+        }
+        closestU = 0;
+        progressS = 0;
+        stallLastProgressS = 0;
+        bestEndError = Double.POSITIVE_INFINITY;
+        lastResult = new SegmentResult(SegmentStatus.RUNNING, Double.NaN, Double.NaN);
+    }
+
+    private void rebaseVelocityEstimator() {
         robot.odo.update();
         prevRx = getX();
         prevRy = getY();
         prevLoopTime = System.nanoTime() / 1e9;
         filteredVx = 0;
         filteredVy = 0;
-        closestU = 0;
-        progressS = 0;
-        stallLastProgressS = 0;
-        bestEndError = Double.POSITIVE_INFINITY;
-        lastResult = new SegmentResult(SegmentStatus.RUNNING, Double.NaN, Double.NaN);
+        odometryVelocityReady = true;
     }
 
     /**
@@ -635,27 +674,9 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
         double tangentialVel = filteredVx * tx + filteredVy * ty;
         double remainingArc = Math.max(0, activeArc.total - progressS);
-        double targetVel = targetTangentialVelocity(
-                progressS,
-                remainingArc,
-                rx,
-                ry,
-                activeSplineX,
-                activeSplineY,
-                activeArc);
-
-        double tangentPower = computePID(
-                targetVel - tangentialVel, dt,
-                K_VEL_P, K_VEL_I, K_VEL_D,
-                VEL_I_MAX_POWER, VEL_D_ALPHA,
-                velPID);
-
-        if (START_MIN_POWER > 0
-                && Math.abs(targetVel) >= START_ASSIST_TARGET_VEL
-                && Math.abs(tangentialVel) <= START_ASSIST_ACTUAL_VEL
-                && Math.abs(tangentPower) < START_MIN_POWER) {
-            tangentPower = Math.copySign(START_MIN_POWER, targetVel);
-        }
+        double speedMag = Math.hypot(filteredVx, filteredVy);
+        double tangentPower = tangentialPower(tangentialVel, speedMag, remainingArc,
+                rx, ry, tx, ty, dt);
 
         tangentPower = Range.clip(tangentPower, -1, 1);
         crossPower = Range.clip(crossPower, -1, 1);
@@ -697,11 +718,23 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         gotoH = targetH;
 
         double endPosError = Math.hypot(this.x - rx, this.y - ry);
-        double speedMag = Math.hypot(filteredVx, filteredVy);
-        boolean done = progressU >= END_U_THRESHOLD
-                && endPosError <= END_POS_THRESHOLD
-                && Math.abs(headingError) <= END_HEADING_THRESHOLD
-                && speedMag <= END_SPEED_THRESHOLD;
+        boolean done;
+        if (isStopPoint()) {
+            // A commanded stop is the only segment that requires position/heading/speed
+            // convergence; it may finish before or after crossing the endpoint normal.
+            done = endPosError <= STOP_POS_THRESHOLD_IN
+                    && speedMag <= STOP_SPEED_THRESHOLD_IN_S
+                    && Math.abs(angleDiff(activeUnwrappedHeading, curH)) <= STOP_HEADING_THRESHOLD_DEG;
+        } else {
+            // Waypoint crossing is geometric, not a low-velocity arrival check.
+            double[] endTangent = unitTangent(activeSplineX, activeSplineY, 1.0);
+            double endDx = rx - this.x;
+            double endDy = ry - this.y;
+            double crossedNormal = endDx * endTangent[0] + endDy * endTangent[1];
+            double crossAtEnd = -endDx * endTangent[1] + endDy * endTangent[0];
+            done = closestU >= END_U_THRESHOLD && crossedNormal >= 0
+                    && Math.abs(crossAtEnd) <= PASS_MAX_CROSS_ERROR_IN;
+        }
 
         if (STALL_TIMEOUT_S > 0) {
             boolean progressed = progressS >= stallLastProgressS + STALL_PROGRESS_EPS_IN;
@@ -723,8 +756,10 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         robot.telemetry.addData("uClosest", String.format("%.4f", closestU));
         robot.telemetry.addData("progress", String.format("%.1f / %.1f in", progressS, activeArc.total));
         robot.telemetry.addData("crossErr", String.format("%.2f in", crossError));
-        robot.telemetry.addData("vTarget", String.format("%.1f in/s", targetVel));
         robot.telemetry.addData("vTangential", String.format("%.1f in/s", tangentialVel));
+        robot.telemetry.addData("brakeZone", wasInBrakeZone);
+        robot.telemetry.addData("endSpeed", segmentEndSpeed);
+        robot.telemetry.addData("stopCapture", stopCapture);
         robot.telemetry.addData("pTangent", String.format("%.3f", tangentPower));
         robot.telemetry.addData("pCross", String.format("%.3f", crossPower));
         robot.telemetry.addData("targetH", String.format("%.1f", targetH));
@@ -737,7 +772,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             Log.i("SplineTracker", "seg=" + segmentIndex
                     + " u=" + String.format("%.4f", closestU)
                     + " s=" + String.format("%.2f", progressS)
-                    + " v=" + String.format("%.1f/%.1f", tangentialVel, targetVel)
+                    + " v=" + String.format("%.1f", tangentialVel)
                     + " cross=" + String.format("%.2f", crossError)
                     + " pT=" + String.format("%.3f", tangentPower)
                     + " pN=" + String.format("%.3f", crossPower));
@@ -760,7 +795,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         gotoY = getY();
         gotoH = activeUnwrappedHeading;
 
-        if (absError <= END_HEADING_THRESHOLD) {
+        if (absError <= STOP_HEADING_THRESHOLD_DEG) {
             return finishActiveSegment(SegmentStatus.ARRIVED);
         }
 
@@ -787,7 +822,11 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         lastSegmentStatus = status;
         this.heading = activeUnwrappedHeading;
         this.preH = activeUnwrappedHeading;
-        stopMotor();
+        // An ordinary waypoint must never force a motor stop. A requested zero-speed
+        // endpoint, a heading-only move and any failure do stop the drivetrain.
+        if (status != SegmentStatus.ARRIVED || isStopPoint() || activeHeadingOnly) {
+            stopMotor();
+        }
         lastResult = snapshotResult(status);
         clearActiveSegment();
         return lastResult;
@@ -811,9 +850,10 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     public void cancel() {
         if (lastSegmentStatus == SegmentStatus.RUNNING) {
             lastSegmentStatus = SegmentStatus.ABORTED;
-            stopMotor();
             lastResult = snapshotResult(SegmentStatus.ABORTED);
         }
+        // Also safe after ARRIVED: used by the loader at waits and route completion.
+        stopMotor();
         clearActiveSegment();
     }
 
@@ -825,60 +865,75 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     public SplineTracker stopMotor() {
         robot.odoDrivetrain.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         robot.odoDrivetrain.stopMotor();
+        odometryVelocityReady = false;
         return this;
     }
 
     /**
-     * Spatial speed command.
-     *
-     * <p>Start ramp depends on traveled arc length. Braking depends on remaining
-     * arc length. Near the endpoint, signed along-track endpoint error is used so
-     * an overshoot can command a small reverse velocity and settle back.</p>
+     * Direct tangential-power policy. Geometry never imposes a cruise speed or an
+     * implicit end-of-segment slowdown. Braking is allowed only in an explicit JSON
+     * zone with an explicit endSpeed. The one-pole filter has no state outside it.
      */
-    private double targetTangentialVelocity(double progressS, double remainingArc,
-                                            double rx, double ry,
-                                            double[] sx, double[] sy, ArcTable arc) {
-        double cruise = Math.max(0, MAX_TANGENTIAL_VEL);
-        if (cruise <= 1e-6) return 0;
+    private double tangentialPower(double tangentialVel, double speedMag,
+                                   double remainingArc, double rx, double ry,
+                                   double tx, double ty, double dt) {
+        boolean inBrakeZone = !Double.isNaN(segmentEndSpeed)
+                && remainingArc <= segmentBrakeZoneIn;
 
-        // Start: non-zero initial target -> smooth ramp to cruise.
-        double startBlend = START_RAMP_DISTANCE > 1e-6
-                ? smoothstep01(progressS / START_RAMP_DISTANCE)
-                : 1.0;
-        double startVel = Math.max(0, START_TARGET_VEL)
-                + (cruise - Math.max(0, START_TARGET_VEL)) * startBlend;
-        startVel = Range.clip(startVel, 0, cruise);
-
-        // Normal braking cap based purely on remaining path distance.
-        double brakeCap;
-        if (BRAKE_DISTANCE > 1e-6) {
-            // sqrt gives a constant-deceleration-like shape without needing a time schedule.
-            brakeCap = cruise * Math.sqrt(clip01(remainingArc / BRAKE_DISTANCE));
+        double request;
+        if (!inBrakeZone) {
+            wasInBrakeZone = false;
+            request = segmentMaxPower;
         } else {
-            brakeCap = cruise;
-        }
+            double forwardSpeed = Math.max(0, tangentialVel);
+            double excessSpeedSq = Math.max(0,
+                    forwardSpeed * forwardSpeed - segmentEndSpeed * segmentEndSpeed);
+            double brakeDistance = excessSpeedSq / (2 * Math.max(1e-3, SAFE_BRAKE_DECEL));
+            boolean brake = forwardSpeed > segmentEndSpeed
+                    && brakeDistance >= remainingArc;
+            request = brake ? -Range.clip(BRAKE_REVERSE_POWER, 0, 1)
+                    : segmentBrakeForwardPower;
 
-        double target = Math.min(startVel, brakeCap);
-
-        // Terminal capture: use SIGNED along-track endpoint error.
-        // This fixes the "overshoot u=1 then no tangential force to come back" failure mode.
-        if (remainingArc <= END_CAPTURE_DISTANCE) {
-            double[] endTangent = unitTangent(sx, sy, 1.0);
-            double endErrorX = this.x - rx;
-            double endErrorY = this.y - ry;
-            double alongError = endErrorX * endTangent[0] + endErrorY * endTangent[1];
-
-            double captureMag;
-            if (BRAKE_DISTANCE > 1e-6) {
-                captureMag = cruise * Math.sqrt(clip01(Math.abs(alongError) / BRAKE_DISTANCE));
+            // This filter only removes high-frequency Bang-Bang chatter WITHIN the
+            // braking zone. It deliberately does not smooth zone boundaries.
+            if (!wasInBrakeZone) {
+                brakeFilteredPower = request;
+                wasInBrakeZone = true;
             } else {
-                captureMag = Math.min(cruise, Math.abs(alongError) * cruise);
+                double tau = Math.max(0, BRAKE_FILTER_TAU_S);
+                double alpha = tau <= 1e-6 ? 1 : dt / (tau + dt);
+                brakeFilteredPower += alpha * (request - brakeFilteredPower);
             }
-
-            target = Math.copySign(Math.min(Math.max(0, startVel), captureMag), alongError);
+            request = brakeFilteredPower;
         }
 
-        return target;
+        // maxSpeed is optional. No speed limit or velocity feedback is active
+        // during ordinary cruise unless the JSON explicitly asks for one.
+        if (!Double.isNaN(segmentMaxSpeed)
+                && tangentialVel >= segmentMaxSpeed - SPEED_LIMIT_FULL_POWER_BELOW_IN_S) {
+            double speedLimitedPower = Range.clip(
+                    SPEED_LIMIT_KP * (segmentMaxSpeed - tangentialVel),
+                    -Math.max(0, SPEED_LIMIT_MAX_REVERSE_POWER), segmentMaxPower);
+            request = Math.min(request, speedLimitedPower);
+        }
+
+        // A real stop is distinct from a pass-through. Once nearly stationary
+        // near the endpoint, use a small signed along-track position correction.
+        if (isStopPoint() && (stopCapture ||
+                (remainingArc <= STOP_CAPTURE_DISTANCE_IN
+                        && speedMag <= STOP_CAPTURE_ENTRY_SPEED_IN_S))) {
+            stopCapture = true;
+            double[] endTangent = unitTangent(activeSplineX, activeSplineY, 1.0);
+            double alongError = (this.x - rx) * endTangent[0]
+                    + (this.y - ry) * endTangent[1];
+            request = Range.clip(STOP_CAPTURE_KP * alongError,
+                    -STOP_CAPTURE_MAX_POWER, STOP_CAPTURE_MAX_POWER);
+        }
+        return Range.clip(request, -1, 1);
+    }
+
+    private boolean isStopPoint() {
+        return !Double.isNaN(segmentEndSpeed) && segmentEndSpeed <= 1e-6;
     }
 
     // ---------------------------------------------------------------------

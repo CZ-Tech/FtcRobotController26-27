@@ -231,6 +231,8 @@ public final class SplineTrajectoryLoader {
     private int stepIndex = -1;
     private boolean pathBegun;
     private boolean stepStarted;
+    /** True only while a driver move may still be producing motor power. */
+    private boolean driveActive;
     private long waitStartedNanos;
     private TrajectoryEvent pendingEvent;
     private ExecutionResult lastResult =
@@ -304,9 +306,7 @@ public final class SplineTrajectoryLoader {
     }
 
     public void cancel() {
-        if (isRunning()) {
-            motionDriver.cancel();
-        }
+        stopDriveIfActive();
         pendingEvent = null;
         stepStarted = false;
         waitStartedNanos = 0;
@@ -382,6 +382,7 @@ public final class SplineTrajectoryLoader {
 
         if (!stepStarted) {
             motionDriver.startMove(step.point);
+            driveActive = true;
             stepStarted = true;
             return lastResult;
         }
@@ -398,12 +399,13 @@ public final class SplineTrajectoryLoader {
         }
 
         if (failurePolicy == FailurePolicy.CONTINUE) {
+            stopDriveIfActive();
             Log.w("SplineAuto", "frame[" + step.frameIndex + "] skipped after " + segment.status);
             advanceStep();
             return lastResult;
         }
 
-        motionDriver.cancel();
+        stopDriveIfActive();
         lastResult = new ExecutionResult(
                 ExecutionStatus.TRACKER_FAILURE,
                 step.frameIndex,
@@ -415,6 +417,12 @@ public final class SplineTrajectoryLoader {
     private void finishStep(Step step) {
         pendingEvent = step.event();
         advanceStep();
+        // Stop as soon as the next action is a WAIT or the route is over;
+        // do not postpone this while an event is waiting to be consumed.
+        if (plan != null && (stepIndex >= plan.steps.size()
+                || plan.steps.get(stepIndex).type == StepType.WAIT)) {
+            stopDriveIfActive();
+        }
     }
 
     private void advanceStep() {
@@ -434,6 +442,7 @@ public final class SplineTrajectoryLoader {
     }
 
     private ExecutionResult complete() {
+        stopDriveIfActive();
         lastResult = new ExecutionResult(
                 ExecutionStatus.COMPLETED,
                 currentFrameIndex(),
@@ -452,6 +461,7 @@ public final class SplineTrajectoryLoader {
     }
 
     private void resetRunState() {
+        driveActive = false;
         plan = null;
         stepIndex = -1;
         pathBegun = false;
@@ -459,6 +469,13 @@ public final class SplineTrajectoryLoader {
         waitStartedNanos = 0;
         pendingEvent = null;
         lastResult = new ExecutionResult(ExecutionStatus.IDLE, -1, null, "idle");
+    }
+
+    private void stopDriveIfActive() {
+        if (driveActive) {
+            driveActive = false;
+            motionDriver.cancel();
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -510,6 +527,24 @@ public final class SplineTrajectoryLoader {
                 double dx = obj.optDouble("dx", 0);
                 double dy = obj.optDouble("dy", 0);
                 double heading = obj.optDouble("heading", 0);
+                double maxPower = obj.optDouble("maxPower", 1.0);
+                double maxSpeed = obj.has("maxSpeed") ? obj.getDouble("maxSpeed") : Double.NaN;
+                double endSpeed = obj.has("endSpeed") ? obj.getDouble("endSpeed") : Double.NaN;
+                double brakeZoneIn = obj.optDouble("brakeZoneIn", 0.0);
+                double brakeForwardPower = obj.has("brakeForwardPower")
+                        ? obj.getDouble("brakeForwardPower") : Double.NaN;
+                if (!Double.isFinite(maxPower) || maxPower < 0 || maxPower > 1
+                        || (!Double.isNaN(maxSpeed) && (!Double.isFinite(maxSpeed) || maxSpeed <= 0))
+                        || (!Double.isNaN(endSpeed) && (!Double.isFinite(endSpeed) || endSpeed < 0))
+                        || !Double.isFinite(brakeZoneIn) || brakeZoneIn < 0
+                        || (!Double.isNaN(brakeForwardPower)
+                            && (!Double.isFinite(brakeForwardPower)
+                                || brakeForwardPower < 0 || brakeForwardPower > 1))) {
+                    throw new JSONException("invalid power/braking data at waypoint " + i);
+                }
+                if (!Double.isNaN(endSpeed) && brakeZoneIn <= 0) {
+                    throw new JSONException("endSpeed requires positive brakeZoneIn at waypoint " + i);
+                }
 
                 double requestedDuration = obj.optDouble("duration", 0);
                 if (WARN_UNUSED_DURATION && requestedDuration > 0) {
@@ -519,7 +554,8 @@ public final class SplineTrajectoryLoader {
 
                 steps.add(Step.moveFrame(
                         i,
-                        new SplineTracker.PathPoint(x, y, dx, dy, heading),
+                        new SplineTracker.PathPoint(x, y, dx, dy, heading,
+                                maxPower, maxSpeed, endSpeed, brakeZoneIn, brakeForwardPower),
                         marker,
                         command,
                         commandParams));
