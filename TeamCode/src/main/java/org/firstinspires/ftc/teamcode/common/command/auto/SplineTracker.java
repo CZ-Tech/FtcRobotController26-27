@@ -11,6 +11,9 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
+import org.firstinspires.ftc.teamcode.common.command.auto.spline.SplineController;
+import org.firstinspires.ftc.teamcode.common.command.auto.spline.SplineGeometry;
+import org.firstinspires.ftc.teamcode.common.command.auto.spline.VelocityEstimator;
 
 /**
  * Spatial spline follower.
@@ -209,16 +212,11 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             new SegmentResult(SegmentStatus.IDLE, Double.NaN, Double.NaN);
     private int segmentIndex = -1;
 
-    private final PIDState crossPID = new PIDState();
+    private final SplineController controller = new SplineController();
+    private final VelocityEstimator velocityEstimator = new VelocityEstimator();
+    private final SplineController.Parameters tuning = new SplineController.Parameters();
 
-    private double segmentMaxPower = 1.0;
-    private double segmentMaxSpeed = Double.NaN;
     private double segmentEndSpeed = Double.NaN;
-    private double segmentBrakeZoneIn;
-    private double segmentBrakeForwardPower;
-    private double brakeFilteredPower;
-    private boolean wasInBrakeZone;
-    private boolean stopCapture;
     private boolean odometryVelocityReady;
 
     private final ElapsedTime stallTimer = new ElapsedTime();
@@ -227,267 +225,13 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     // Non-blocking active-segment state
     // ---------------------------------------------------------------------
 
-    private double[] activeSplineX;
-    private double[] activeSplineY;
-    private double[] activeSplineH;
-    private ArcTable activeArc;
+    private SplineGeometry activeGeometry;
     private double activeUnwrappedHeading;
     private boolean activeHeadingOnly;
 
-    private double prevRx;
-    private double prevRy;
     private double prevLoopTime;
-    private double filteredVx;
-    private double filteredVy;
-
-    private double closestU;
-    private double progressS;
     private double stallLastProgressS;
     private double bestEndError = Double.POSITIVE_INFINITY;
-
-    private static class PIDState {
-        double integral;
-        double lastError;
-        double filteredDerivative;
-        boolean firstRun = true;
-
-        void reset() {
-            integral = 0;
-            lastError = 0;
-            filteredDerivative = 0;
-            firstRun = true;
-        }
-    }
-
-    /** Uniform-u sampled arc-length lookup table. */
-    private static class ArcTable {
-        final double[] cumulative;
-        final int n;
-        final double total;
-
-        ArcTable(double[] cumulative) {
-            this.cumulative = cumulative;
-            this.n = cumulative.length - 1;
-            this.total = cumulative[cumulative.length - 1];
-        }
-
-        double sAtU(double u) {
-            u = clip01(u);
-            double p = u * n;
-            int i = (int) Math.floor(p);
-            if (i >= n) return total;
-            double f = p - i;
-            return cumulative[i] + f * (cumulative[i + 1] - cumulative[i]);
-        }
-
-        double uAtS(double s) {
-            if (total <= 1e-9) return 0;
-            if (s <= 0) return 0;
-            if (s >= total) return 1;
-
-            int lo = 0;
-            int hi = n;
-            while (lo < hi - 1) {
-                int mid = (lo + hi) >>> 1;
-                if (cumulative[mid] <= s) lo = mid;
-                else hi = mid;
-            }
-
-            double span = cumulative[hi] - cumulative[lo];
-            double f = span > 1e-9 ? (s - cumulative[lo]) / span : 0;
-            return (lo + f) / n;
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Spline math
-    // ---------------------------------------------------------------------
-    private double[] spline_fit(double x0, double dx0, double x1, double dx1) {
-        double a = 2 * x0 + dx0 - 2 * x1 + dx1;
-        double b = -3 * x0 - 2 * dx0 + 3 * x1 - dx1;
-        double c = dx0;
-        double d = x0;
-        return new double[]{a, b, c, d};
-    }
-
-    private double spline_get(double[] spline, double u) {
-        return spline[0] * u * u * u + spline[1] * u * u + spline[2] * u + spline[3];
-    }
-
-    private double splineDerivative(double[] spline, double u) {
-        return 3 * spline[0] * u * u + 2 * spline[1] * u + spline[2];
-    }
-
-    private double splineSecondDerivative(double[] spline, double u) {
-        return 6 * spline[0] * u + 2 * spline[1];
-    }
-
-    private ArcTable buildArcTable(double[] sx, double[] sy) {
-        int n = Math.max(40, ARC_SAMPLES);
-        double[] cum = new double[n + 1];
-        double px = spline_get(sx, 0);
-        double py = spline_get(sy, 0);
-
-        for (int i = 1; i <= n; i++) {
-            double u = (double) i / n;
-            double cx = spline_get(sx, u);
-            double cy = spline_get(sy, u);
-            cum[i] = cum[i - 1] + Math.hypot(cx - px, cy - py);
-            px = cx;
-            py = cy;
-        }
-        return new ArcTable(cum);
-    }
-
-    /**
-     * Local coarse-search + Newton projection.
-     * The local arc-length window prevents a U-shaped/self-near segment from jumping
-     * to a far-away branch of the same cubic merely because it is spatially close.
-     */
-    private double findClosestU(double[] sx, double[] sy, ArcTable arc,
-                                double rx, double ry, double previousU) {
-        double previousS = arc.sAtU(previousU);
-        double lowU = arc.uAtS(previousS - Math.max(0, PROJECTION_BACKTRACK_IN));
-        double highU = arc.uAtS(previousS + Math.max(0, PROJECTION_FORWARD_IN));
-
-        if (highU < lowU + 1e-6) {
-            lowU = Math.max(0, previousU - 0.05);
-            highU = Math.min(1, previousU + 0.10);
-        }
-
-        // Coarse local seed.
-        int samples = Math.max(4, PROJECTION_SAMPLES);
-        double bestU = lowU;
-        double bestD2 = Double.POSITIVE_INFINITY;
-        for (int i = 0; i <= samples; i++) {
-            double u = lowU + (highU - lowU) * i / samples;
-            double ex = spline_get(sx, u) - rx;
-            double ey = spline_get(sy, u) - ry;
-            double d2 = ex * ex + ey * ey;
-            if (d2 < bestD2) {
-                bestD2 = d2;
-                bestU = u;
-            }
-        }
-
-        // Newton on D'(u) = (r(u)-p) dot r'(u) = 0.
-        double u = bestU;
-        for (int i = 0; i < Math.max(1, NEWTON_ITERS); i++) {
-            double px = spline_get(sx, u);
-            double py = spline_get(sy, u);
-            double dxdu = splineDerivative(sx, u);
-            double dydu = splineDerivative(sy, u);
-            double ddxdu = splineSecondDerivative(sx, u);
-            double ddydu = splineSecondDerivative(sy, u);
-
-            double ex = px - rx;
-            double ey = py - ry;
-
-            double f = ex * dxdu + ey * dydu;
-            double df = dxdu * dxdu + dydu * dydu + ex * ddxdu + ey * ddydu;
-            if (Math.abs(df) < 1e-9) break;
-
-            u -= f / df;
-            u = Range.clip(u, lowU, highU);
-        }
-
-        // Newton can converge to a local maximum in pathological cases. Compare with bounds.
-        double u0 = u;
-        double d0 = distanceSqToSpline(sx, sy, rx, ry, u0);
-        double dl = distanceSqToSpline(sx, sy, rx, ry, lowU);
-        double dh = distanceSqToSpline(sx, sy, rx, ry, highU);
-        if (dl < d0 && dl <= dh) return lowU;
-        if (dh < d0) return highU;
-        return u0;
-    }
-
-    private double distanceSqToSpline(double[] sx, double[] sy,
-                                      double rx, double ry, double u) {
-        double ex = spline_get(sx, u) - rx;
-        double ey = spline_get(sy, u) - ry;
-        return ex * ex + ey * ey;
-    }
-
-    /** Unit tangent in increasing-u direction, robust to zero endpoint derivatives. */
-    private double[] unitTangent(double[] sx, double[] sy, double u) {
-        double tx = splineDerivative(sx, u);
-        double ty = splineDerivative(sy, u);
-        double mag = Math.hypot(tx, ty);
-
-        if (mag < 1e-6) {
-            double du = Math.max(1e-4, TANGENT_SAMPLE_DU);
-            double u0 = Math.max(0, u - du);
-            double u1 = Math.min(1, u + du);
-            if (u1 - u0 < 1e-6) {
-                u0 = Math.max(0, u - 2 * du);
-                u1 = Math.min(1, u + 2 * du);
-            }
-            tx = spline_get(sx, u1) - spline_get(sx, u0);
-            ty = spline_get(sy, u1) - spline_get(sy, u0);
-            mag = Math.hypot(tx, ty);
-        }
-
-        if (mag < 1e-6) {
-            tx = spline_get(sx, 1) - spline_get(sx, 0);
-            ty = spline_get(sy, 1) - spline_get(sy, 0);
-            mag = Math.hypot(tx, ty);
-        }
-
-        if (mag < 1e-6) return new double[]{1, 0};
-        return new double[]{tx / mag, ty / mag};
-    }
-
-    private static double clip01(double v) {
-        return Math.max(0, Math.min(1, v));
-    }
-
-    private static double smoothstep01(double x) {
-        x = clip01(x);
-        return x * x * (3 - 2 * x);
-    }
-
-    private double angleDiff(double target, double current) {
-        double diff = target - current;
-        while (diff > 180) diff -= 360;
-        while (diff <= -180) diff += 360;
-        return diff;
-    }
-
-    /** Generic PID with integral contribution clamp and EMA-filtered derivative. */
-    private double computePID(double error, double dt,
-                              double kp, double ki, double kd,
-                              double iMaxPower, double dAlpha,
-                              PIDState state) {
-        if (dt <= 1e-5 || dt > 0.25) dt = 0.02;
-
-        if (state.firstRun) {
-            state.firstRun = false;
-            state.lastError = error;
-            state.filteredDerivative = 0;
-        }
-
-        if (ki != 0) {
-            state.integral += error * dt;
-            double iTerm = ki * state.integral;
-            if (iMaxPower > 0) {
-                double clipped = Range.clip(iTerm, -iMaxPower, iMaxPower);
-                if (clipped != iTerm) state.integral = clipped / ki;
-            }
-        } else {
-            state.integral = 0;
-        }
-
-        double rawDerivative = (error - state.lastError) / dt;
-        double alpha = clip01(dAlpha);
-        state.filteredDerivative = alpha * rawDerivative
-                + (1 - alpha) * state.filteredDerivative;
-        state.lastError = error;
-
-        double iTerm = ki * state.integral;
-        if (iMaxPower > 0) iTerm = Range.clip(iTerm, -iMaxPower, iMaxPower);
-
-        return kp * error + iTerm + kd * state.filteredDerivative;
-    }
 
     // ---------------------------------------------------------------------
     // Initialization
@@ -534,7 +278,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.segmentIndex = -1;
         this.lastSegmentStatus = SegmentStatus.IDLE;
         this.lastResult = new SegmentResult(SegmentStatus.IDLE, 0, 0);
-        crossPID.reset();
+        controller.resetCrossPid();
         clearActiveSegment();
         rebaseVelocityEstimator();
     }
@@ -548,16 +292,12 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
         if (lastSegmentStatus == SegmentStatus.RUNNING) cancel();
 
-        segmentMaxPower = Range.clip(target.maxPower, 0, 1);
-        segmentMaxSpeed = target.maxSpeed;
+        double maxPower = Range.clip(target.maxPower, 0, 1);
         segmentEndSpeed = target.endSpeed;
-        segmentBrakeZoneIn = target.brakeZoneIn;
-        segmentBrakeForwardPower = Double.isNaN(target.brakeForwardPower)
+        double brakeForwardPower = Double.isNaN(target.brakeForwardPower)
                 ? Range.clip(DEFAULT_BRAKE_FORWARD_POWER, 0, 1)
                 : Range.clip(target.brakeForwardPower, 0, 1);
-        segmentBrakeForwardPower = Math.min(segmentBrakeForwardPower, segmentMaxPower);
-        wasInBrakeZone = false;
-        stopCapture = false;
+        brakeForwardPower = Math.min(brakeForwardPower, maxPower);
 
         this.lx = this.x;
         this.ly = this.y;
@@ -569,9 +309,8 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.dy = target.dy;
         this.segmentIndex++;
 
-        activeSplineX = spline_fit(this.lx, this.ldx, this.x, this.dx);
-        activeSplineY = spline_fit(this.ly, this.ldy, this.y, this.dy);
-
+        activeGeometry = new SplineGeometry(this.lx, this.ly, this.ldx, this.ldy,
+                this.x, this.y, this.dx, this.dy, ARC_SAMPLES);
         activeUnwrappedHeading = target.heading;
         double hDiff = target.heading - this.heading;
         while (hDiff > 180) {
@@ -582,21 +321,18 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             activeUnwrappedHeading += 360;
             hDiff += 360;
         }
-        activeSplineH = spline_fit(this.heading, 0, activeUnwrappedHeading, 0);
-        activeArc = buildArcTable(activeSplineX, activeSplineY);
+        controller.startSegment(activeGeometry, this.heading, activeUnwrappedHeading,
+                this.x, this.y, maxPower, target.maxSpeed, target.endSpeed,
+                target.brakeZoneIn, brakeForwardPower);
 
         stallTimer.reset();
         lastSegmentStatus = SegmentStatus.RUNNING;
-        activeHeadingOnly = activeArc.total < DEGENERATE_ARC_THRESHOLD;
-
-        // Continuous pass-through segments keep measured velocity and cross-track PID state.
-        // Explicit stops/waits clear the estimator via stopMotor().
+        activeHeadingOnly = activeGeometry.totalLength() < DEGENERATE_ARC_THRESHOLD;
+        // Passing through a waypoint keeps the prior filtered velocity and PID history.
         if (!odometryVelocityReady) {
             rebaseVelocityEstimator();
-            crossPID.reset();
+            controller.resetCrossPid();
         }
-        closestU = 0;
-        progressS = 0;
         stallLastProgressS = 0;
         bestEndError = Double.POSITIVE_INFINITY;
         lastResult = new SegmentResult(SegmentStatus.RUNNING, Double.NaN, Double.NaN);
@@ -604,12 +340,44 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
     private void rebaseVelocityEstimator() {
         robot.odo.update();
-        prevRx = getX();
-        prevRy = getY();
+        velocityEstimator.rebase(getX(), getY());
         prevLoopTime = System.nanoTime() / 1e9;
-        filteredVx = 0;
-        filteredVy = 0;
         odometryVelocityReady = true;
+    }
+
+    /** Copy live dashboard tuning into the hardware-free controller. */
+    private SplineController.Parameters currentTuning() {
+        tuning.projectionSamples = PROJECTION_SAMPLES;
+        tuning.newtonIterations = NEWTON_ITERS;
+        tuning.projectionBacktrackIn = PROJECTION_BACKTRACK_IN;
+        tuning.projectionForwardIn = PROJECTION_FORWARD_IN;
+        tuning.tangentSampleDu = TANGENT_SAMPLE_DU;
+        tuning.crossP = K_CROSS_P;
+        tuning.crossI = K_CROSS_I;
+        tuning.crossD = K_CROSS_D;
+        tuning.crossIMaxPower = CROSS_I_MAX_POWER;
+        tuning.crossDAlpha = CROSS_D_ALPHA;
+        tuning.headingP = K_HEADING;
+        tuning.turnDeadArea = TURN_DEAD_AREA;
+        tuning.safeBrakeDecel = SAFE_BRAKE_DECEL;
+        tuning.brakeReversePower = BRAKE_REVERSE_POWER;
+        tuning.brakeFilterTauS = BRAKE_FILTER_TAU_S;
+        tuning.speedLimitKp = SPEED_LIMIT_KP;
+        tuning.speedLimitFullPowerBelowInS = SPEED_LIMIT_FULL_POWER_BELOW_IN_S;
+        tuning.speedLimitMaxReversePower = SPEED_LIMIT_MAX_REVERSE_POWER;
+        tuning.stopCaptureDistanceIn = STOP_CAPTURE_DISTANCE_IN;
+        tuning.stopCaptureEntrySpeedInS = STOP_CAPTURE_ENTRY_SPEED_IN_S;
+        tuning.stopCaptureKp = STOP_CAPTURE_KP;
+        tuning.stopCaptureMaxPower = STOP_CAPTURE_MAX_POWER;
+        tuning.stopPosThresholdIn = STOP_POS_THRESHOLD_IN;
+        tuning.stopHeadingThresholdDeg = STOP_HEADING_THRESHOLD_DEG;
+        tuning.stopSpeedThresholdInS = STOP_SPEED_THRESHOLD_IN_S;
+        tuning.endUThreshold = END_U_THRESHOLD;
+        tuning.passMaxCrossErrorIn = PASS_MAX_CROSS_ERROR_IN;
+        tuning.motorVoltage = motorVoltage;
+        tuning.voltageCompWeight = VOLTAGE_COMP_WEIGHT;
+        tuning.maxTranslationPower = MAX_TRANSLATION_POWER;
+        return tuning;
     }
 
     /**
@@ -641,100 +409,34 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         double ry = getY();
         double curH = getHeading();
 
-        double rawVx = (rx - prevRx) / dt;
-        double rawVy = (ry - prevRy) / dt;
-        prevRx = rx;
-        prevRy = ry;
-
-        double velAlpha = clip01(VELOCITY_FILTER_ALPHA);
-        filteredVx = velAlpha * rawVx + (1 - velAlpha) * filteredVx;
-        filteredVy = velAlpha * rawVy + (1 - velAlpha) * filteredVy;
-
-        closestU = findClosestU(activeSplineX, activeSplineY, activeArc, rx, ry, closestU);
-        double closestS = activeArc.sAtU(closestU);
-        if (closestS > progressS) progressS = closestS;
-        double progressU = activeArc.uAtS(progressS);
-
-        double pathX = spline_get(activeSplineX, closestU);
-        double pathY = spline_get(activeSplineY, closestU);
-        double[] tangent = unitTangent(activeSplineX, activeSplineY, closestU);
-        double tx = tangent[0];
-        double ty = tangent[1];
-        double nx = -ty;
-        double ny = tx;
-
-        double toPathX = pathX - rx;
-        double toPathY = pathY - ry;
-        double crossError = toPathX * nx + toPathY * ny;
-        double crossPower = computePID(
-                crossError, dt,
-                K_CROSS_P, K_CROSS_I, K_CROSS_D,
-                CROSS_I_MAX_POWER, CROSS_D_ALPHA,
-                crossPID);
-
-        double tangentialVel = filteredVx * tx + filteredVy * ty;
-        double remainingArc = Math.max(0, activeArc.total - progressS);
-        double speedMag = Math.hypot(filteredVx, filteredVy);
-        double tangentPower = tangentialPower(tangentialVel, speedMag, remainingArc,
-                rx, ry, tx, ty, dt);
-
-        tangentPower = Range.clip(tangentPower, -1, 1);
-        crossPower = Range.clip(crossPower, -1, 1);
-
-        double targetH = spline_get(activeSplineH, progressU);
-        double headingError = angleDiff(targetH, curH);
-        double yawPower = headingError * K_HEADING;
-        if (Math.abs(headingError) < TURN_DEAD_AREA) yawPower = 0;
-        yawPower = Range.clip(yawPower, -1, 1);
-
-        double powerX = tangentPower * tx + crossPower * nx;
-        double powerY = tangentPower * ty + crossPower * ny;
-
+        velocityEstimator.update(rx, ry, dt, VELOCITY_FILTER_ALPHA);
         double voltage = robot.getVoltage();
-        double motorPowerGain = 1.0;
-        if (voltage > 1e-6) {
-            double rawGain = Math.abs(motorVoltage / voltage);
-            motorPowerGain = 1.0 + (rawGain - 1.0) * VOLTAGE_COMP_WEIGHT;
-        }
-        powerX *= motorPowerGain;
-        powerY *= motorPowerGain;
-        yawPower *= motorPowerGain;
-
-        double translationMag = Math.hypot(powerX, powerY);
-        double maxTranslation = Range.clip(MAX_TRANSLATION_POWER, 0, 1);
-        if (translationMag > maxTranslation && translationMag > 1e-9) {
-            double scale = maxTranslation / translationMag;
-            powerX *= scale;
-            powerY *= scale;
-        }
-        yawPower = Range.clip(yawPower, -1, 1);
+        SplineController.Output output = controller.update(
+                new SplineController.Input(rx, ry, curH,
+                        velocityEstimator.vx(), velocityEstimator.vy(), voltage, dt),
+                currentTuning());
+        double closestU = output.closestU;
+        double progressS = output.progressS;
+        double pathX = output.pathX;
+        double pathY = output.pathY;
+        double crossError = output.crossError;
+        double tangentialVel = output.tangentialVelocity;
+        double tangentPower = output.tangentPower;
+        double crossPower = output.crossPower;
+        double targetH = output.targetHeading;
+        double headingError = output.headingError;
+        double powerX = output.powerX;
+        double powerY = output.powerY;
+        double yawPower = output.yawPower;
+        double endPosError = output.endPositionError;
+        boolean done = output.arrived;
 
         if (!Globals.DEBUG) {
             robot.odoDrivetrain.driveRobotFieldCentric(powerX, -powerY, -yawPower);
         }
-
         gotoX = pathX;
         gotoY = pathY;
         gotoH = targetH;
-
-        double endPosError = Math.hypot(this.x - rx, this.y - ry);
-        boolean done;
-        if (isStopPoint()) {
-            // A commanded stop is the only segment that requires position/heading/speed
-            // convergence; it may finish before or after crossing the endpoint normal.
-            done = endPosError <= STOP_POS_THRESHOLD_IN
-                    && speedMag <= STOP_SPEED_THRESHOLD_IN_S
-                    && Math.abs(angleDiff(activeUnwrappedHeading, curH)) <= STOP_HEADING_THRESHOLD_DEG;
-        } else {
-            // Waypoint crossing is geometric, not a low-velocity arrival check.
-            double[] endTangent = unitTangent(activeSplineX, activeSplineY, 1.0);
-            double endDx = rx - this.x;
-            double endDy = ry - this.y;
-            double crossedNormal = endDx * endTangent[0] + endDy * endTangent[1];
-            double crossAtEnd = -endDx * endTangent[1] + endDy * endTangent[0];
-            done = closestU >= END_U_THRESHOLD && crossedNormal >= 0
-                    && Math.abs(crossAtEnd) <= PASS_MAX_CROSS_ERROR_IN;
-        }
 
         if (STALL_TIMEOUT_S > 0) {
             boolean progressed = progressS >= stallLastProgressS + STALL_PROGRESS_EPS_IN;
@@ -754,12 +456,12 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
         robot.telemetry.addData("seg", segmentIndex);
         robot.telemetry.addData("uClosest", String.format("%.4f", closestU));
-        robot.telemetry.addData("progress", String.format("%.1f / %.1f in", progressS, activeArc.total));
+        robot.telemetry.addData("progress", String.format("%.1f / %.1f in", progressS, activeGeometry.totalLength()));
         robot.telemetry.addData("crossErr", String.format("%.2f in", crossError));
         robot.telemetry.addData("vTangential", String.format("%.1f in/s", tangentialVel));
-        robot.telemetry.addData("brakeZone", wasInBrakeZone);
+        robot.telemetry.addData("brakeZone", output.brakingZone);
         robot.telemetry.addData("endSpeed", segmentEndSpeed);
-        robot.telemetry.addData("stopCapture", stopCapture);
+        robot.telemetry.addData("stopCapture", output.stopCapture);
         robot.telemetry.addData("pTangent", String.format("%.3f", tangentPower));
         robot.telemetry.addData("pCross", String.format("%.3f", crossPower));
         robot.telemetry.addData("targetH", String.format("%.1f", targetH));
@@ -788,7 +490,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     private SegmentResult updateHeadingOnly() {
         robot.odo.update();
         double current = getHeading();
-        double error = angleDiff(activeUnwrappedHeading, current);
+        double error = SplineController.angleDiff(activeUnwrappedHeading, current);
         double absError = Math.abs(error);
 
         gotoX = getX();
@@ -806,9 +508,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             return finishActiveSegment(SegmentStatus.STALLED);
         }
 
-        double yawPower = error * K_HEADING;
-        if (Math.abs(error) < TURN_DEAD_AREA) yawPower = 0;
-        yawPower = Range.clip(yawPower, -1, 1);
+        double yawPower = SplineController.headingPowerFromError(error, K_HEADING, TURN_DEAD_AREA);
 
         if (!Globals.DEBUG) {
             robot.odoDrivetrain.driveRobotFieldCentric(0, 0, -yawPower);
@@ -824,7 +524,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.preH = activeUnwrappedHeading;
         // An ordinary waypoint must never force a motor stop. A requested zero-speed
         // endpoint, a heading-only move and any failure do stop the drivetrain.
-        if (status != SegmentStatus.ARRIVED || isStopPoint() || activeHeadingOnly) {
+        if (status != SegmentStatus.ARRIVED || controller.isStopPoint() || activeHeadingOnly) {
             stopMotor();
         }
         lastResult = snapshotResult(status);
@@ -834,15 +534,13 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
     private SegmentResult snapshotResult(SegmentStatus status) {
         double posError = Math.hypot(this.x - getX(), this.y - getY());
-        double headingError = angleDiff(this.heading, getHeading());
+        double headingError = SplineController.angleDiff(this.heading, getHeading());
         return new SegmentResult(status, posError, headingError);
     }
 
     private void clearActiveSegment() {
-        activeSplineX = null;
-        activeSplineY = null;
-        activeSplineH = null;
-        activeArc = null;
+        activeGeometry = null;
+        controller.clearSegment();
         activeHeadingOnly = false;
     }
 
@@ -867,73 +565,6 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         robot.odoDrivetrain.stopMotor();
         odometryVelocityReady = false;
         return this;
-    }
-
-    /**
-     * Direct tangential-power policy. Geometry never imposes a cruise speed or an
-     * implicit end-of-segment slowdown. Braking is allowed only in an explicit JSON
-     * zone with an explicit endSpeed. The one-pole filter has no state outside it.
-     */
-    private double tangentialPower(double tangentialVel, double speedMag,
-                                   double remainingArc, double rx, double ry,
-                                   double tx, double ty, double dt) {
-        boolean inBrakeZone = !Double.isNaN(segmentEndSpeed)
-                && remainingArc <= segmentBrakeZoneIn;
-
-        double request;
-        if (!inBrakeZone) {
-            wasInBrakeZone = false;
-            request = segmentMaxPower;
-        } else {
-            double forwardSpeed = Math.max(0, tangentialVel);
-            double excessSpeedSq = Math.max(0,
-                    forwardSpeed * forwardSpeed - segmentEndSpeed * segmentEndSpeed);
-            double brakeDistance = excessSpeedSq / (2 * Math.max(1e-3, SAFE_BRAKE_DECEL));
-            boolean brake = forwardSpeed > segmentEndSpeed
-                    && brakeDistance >= remainingArc;
-            request = brake ? -Range.clip(BRAKE_REVERSE_POWER, 0, 1)
-                    : segmentBrakeForwardPower;
-
-            // This filter only removes high-frequency Bang-Bang chatter WITHIN the
-            // braking zone. It deliberately does not smooth zone boundaries.
-            if (!wasInBrakeZone) {
-                brakeFilteredPower = request;
-                wasInBrakeZone = true;
-            } else {
-                double tau = Math.max(0, BRAKE_FILTER_TAU_S);
-                double alpha = tau <= 1e-6 ? 1 : dt / (tau + dt);
-                brakeFilteredPower += alpha * (request - brakeFilteredPower);
-            }
-            request = brakeFilteredPower;
-        }
-
-        // maxSpeed is optional. No speed limit or velocity feedback is active
-        // during ordinary cruise unless the JSON explicitly asks for one.
-        if (!Double.isNaN(segmentMaxSpeed)
-                && tangentialVel >= segmentMaxSpeed - SPEED_LIMIT_FULL_POWER_BELOW_IN_S) {
-            double speedLimitedPower = Range.clip(
-                    SPEED_LIMIT_KP * (segmentMaxSpeed - tangentialVel),
-                    -Math.max(0, SPEED_LIMIT_MAX_REVERSE_POWER), segmentMaxPower);
-            request = Math.min(request, speedLimitedPower);
-        }
-
-        // A real stop is distinct from a pass-through. Once nearly stationary
-        // near the endpoint, use a small signed along-track position correction.
-        if (isStopPoint() && (stopCapture ||
-                (remainingArc <= STOP_CAPTURE_DISTANCE_IN
-                        && speedMag <= STOP_CAPTURE_ENTRY_SPEED_IN_S))) {
-            stopCapture = true;
-            double[] endTangent = unitTangent(activeSplineX, activeSplineY, 1.0);
-            double alongError = (this.x - rx) * endTangent[0]
-                    + (this.y - ry) * endTangent[1];
-            request = Range.clip(STOP_CAPTURE_KP * alongError,
-                    -STOP_CAPTURE_MAX_POWER, STOP_CAPTURE_MAX_POWER);
-        }
-        return Range.clip(request, -1, 1);
-    }
-
-    private boolean isStopPoint() {
-        return !Double.isNaN(segmentEndSpeed) && segmentEndSpeed <= 1e-6;
     }
 
     // ---------------------------------------------------------------------
