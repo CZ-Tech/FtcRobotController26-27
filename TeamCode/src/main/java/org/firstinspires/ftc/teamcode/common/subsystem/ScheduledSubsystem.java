@@ -24,7 +24,7 @@ import java.util.function.LongSupplier;
  * by the OpMode/control thread and is only touched from {@link #update()}.</p>
  */
 public abstract class ScheduledSubsystem<A> {
-    public static int MAX_STEPS_PER_UPDATE = 32;
+    private static final int MAX_STEPS_PER_UPDATE = 32;
 
     private final Class<A> apiType;
     private final LongSupplier nanoTime;

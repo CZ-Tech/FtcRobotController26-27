@@ -260,8 +260,8 @@ public class Duo extends LinearOpMode {
             robot.telemetry.addData("X", robot.odo.getPosition().getX(DistanceUnit.INCH));
             robot.telemetry.addData("Y", robot.odo.getPosition().getY(DistanceUnit.INCH));
 
-            robot.telemetry.addData("左发射速度",robot.subsystem.shooter.left.getVelocity()/28*60);
-            robot.telemetry.addData("右发射速度",robot.subsystem.shooter.right.getVelocity()/28*60);
+            robot.telemetry.addData("左发射速度",robot.subsystem.shooter.getLeftRPM());
+            robot.telemetry.addData("右发射速度",robot.subsystem.shooter.getRightRPM());
 //            robot.telemetry.addData("tx", result[6]);
 //            robot.telemetry.addData("ty", result[7]);
 //            robot.telemetry.addData("dis", result[10]);

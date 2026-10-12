@@ -81,12 +81,14 @@ public class Command {
     }
 
     public Command transportArtifact(){
-        robot.subsystem.intaker.intakerIn(-1).robot.subsystem.belt.up(0.7);
+        robot.subsystem.intaker.intakerIn(-1);
+        robot.subsystem.belt.up(0.7);
         return this;
     }
 
     public Command transportArtifact(float beltPower){
-        robot.subsystem.intaker.intakerIn(-1).robot.subsystem.belt.up(beltPower);
+        robot.subsystem.intaker.intakerIn(-1);
+        robot.subsystem.belt.up(beltPower);
         return this;
     }
 
@@ -115,12 +117,15 @@ public class Command {
     }
 
     public Command leaveArtifact(){
-        robot.subsystem.intaker.intakerIn(-1).robot.subsystem.belt.down();
+        robot.subsystem.intaker.intakerIn(-1);
+        robot.subsystem.belt.down();
         return this;
     }
 
     public Command stopTransporting(){
-        robot.subsystem.intaker.intakerArmStop().robot.subsystem.belt.stop().robot.subsystem.door.spin(0);
+        robot.subsystem.intaker.intakerArmStop();
+        robot.subsystem.belt.stop();
+        robot.subsystem.door.spin(0);
         return this;
     }
 

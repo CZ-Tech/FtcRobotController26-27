@@ -1,8 +1,6 @@
 package org.firstinspires.ftc.teamcode.common.subsystem;
 
-import com.qualcomm.robotcore.hardware.CRServoImplEx;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.PwmControl;
 
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
@@ -14,22 +12,13 @@ public class Intaker extends ScheduledSubsystem<Intaker.Schedule> {
         Schedule intakerArmStop();
     }
 
-    public final Robot robot;
-
-    public CRServoImplEx leftArm, rightArm;
-    public DcMotorEx intakerItself;
+    private final DcMotorEx intakerItself;
 
     public Intaker(Robot robot) {
         super(Schedule.class);
-        this.robot = robot;
-
-//        leftArm = robot.hardwareMap.get(CRServoImplEx.class, Globals.leftArm);
-//        rightArm = robot.hardwareMap.get(CRServoImplEx.class, Globals.rightArm);
-//
-//        leftArm.setPwmRange(new PwmControl.PwmRange(500, 2500));
-//        rightArm.setPwmRange(new PwmControl.PwmRange(500, 2500));
-
-        intakerItself = robot.hardwareMap.get(DcMotorEx.class, Globals.intaker);
+        intakerItself = java.util.Objects.requireNonNull(
+                robot.hardwareMap.get(DcMotorEx.class, Globals.intaker),
+                "Intaker motor is missing: " + Globals.intaker);
 
         this.setArmPower(0);
     }

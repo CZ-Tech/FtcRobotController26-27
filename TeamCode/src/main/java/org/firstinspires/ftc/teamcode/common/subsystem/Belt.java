@@ -1,8 +1,6 @@
 package org.firstinspires.ftc.teamcode.common.subsystem;
 
-import com.qualcomm.robotcore.hardware.CRServoImplEx;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.PwmControl;
 
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
@@ -15,20 +13,10 @@ public class Belt extends ScheduledSubsystem<Belt.Schedule> {
         Schedule stop();
     }
 
-    public Robot robot;
-    public CRServoImplEx leftBelt, rightBelt;
-    public DcMotorEx beltItself;
+    private final DcMotorEx beltItself;
 
     public Belt(Robot robot){
         super(Schedule.class);
-        this.robot = robot;
-
-//        leftBelt = robot.hardwareMap.get(CRServoImplEx.class, Globals.leftBelt);
-//        rightBelt = robot.hardwareMap.get(CRServoImplEx.class, Globals.rightBelt);
-//
-//        leftBelt.setPwmRange(new PwmControl.PwmRange(500, 2500));
-//        rightBelt.setPwmRange(new PwmControl.PwmRange(500, 2500));
-
         beltItself = robot.hardwareMap.get(DcMotorEx.class, Globals.belt);
     }
 
