@@ -7,7 +7,6 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.teamcode.common.command.AutoAimController;
-import org.firstinspires.ftc.teamcode.common.command.Command;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.hardware.GamepadEx;
@@ -27,7 +26,6 @@ public class Robot {
     public LinearOpMode opMode;
     public OdoDrivetrain odoDrivetrain;
     public Subsystem subsystem;
-    public Command command;
     public GamepadEx gamepad1;
     public GamepadEx gamepad2;
     public Alliance teamColor;
@@ -65,7 +63,6 @@ public class Robot {
         this.subsystem = new Subsystem(this); //上层子系统
         this.gamepad1 = new GamepadEx(opMode.gamepad1); //一个控制器
         this.gamepad2 = new GamepadEx(opMode.gamepad2); //另一个控制器
-        this.command = new Command(this); //命令系统
 
         this.odoDrivetrain = new OdoDrivetrain(this);
 
