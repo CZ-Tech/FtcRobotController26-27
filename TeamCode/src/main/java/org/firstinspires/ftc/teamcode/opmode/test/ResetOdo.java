@@ -16,14 +16,10 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 @TeleOp(name = "ResetOdo", group = "Test")
 public class ResetOdo extends RobotLinearOpMode {
     @Override
-    protected void beforeRobotInit() {
-        MixedOdo.isPoseInitialized = false;
-    }
-
-    @Override
     protected void runRobotOpMode() {
+        robot.odo.reCollaborate();
         telemetry.addLine("Odo has been reset! Next init needs AprilTag!");
-        while (!MixedOdo.isPoseInitialized && !isStarted()) {
+        while (!Globals.isPoseInitialized && !isStarted()) {
             robot.odo.update();
             telemetry.update();
         };

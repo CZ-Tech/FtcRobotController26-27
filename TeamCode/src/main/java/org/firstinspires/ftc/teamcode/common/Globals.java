@@ -84,6 +84,8 @@ public class Globals {
     // ------------------------------------------------------------------
     // Odometry
     // ------------------------------------------------------------------
+    /** Whether the global odometry pose has been initialized across OpModes. */
+    public static volatile boolean isPoseInitialized = false;
 
     // 设置里程计吊舱相对于跟踪点的位置偏移
     //  @param xOffset 检测前后运动的吊舱偏移量（毫米），中心左侧为正，右侧为负

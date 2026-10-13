@@ -11,7 +11,6 @@ public abstract class RobotLinearOpMode extends LinearOpMode {
     @Override
     public final void runOpMode() throws InterruptedException {
         try {
-            beforeRobotInit();
             robot.init(this);
             runRobotOpMode();
         } finally {
@@ -20,9 +19,6 @@ public abstract class RobotLinearOpMode extends LinearOpMode {
             }
         }
     }
-
-    /** Optional initialization preparation, before Robot.init() allocates hardware. */
-    protected void beforeRobotInit() {}
 
     /** OpMode-specific initialization, waitForStart and control flow. */
     protected abstract void runRobotOpMode() throws InterruptedException;

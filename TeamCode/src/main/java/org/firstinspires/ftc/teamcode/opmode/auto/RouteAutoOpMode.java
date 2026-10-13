@@ -5,6 +5,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
+import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
@@ -33,7 +34,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
 
     @Override
     protected void runRobotOpMode() throws InterruptedException {
-        MixedOdo.isPoseInitialized = true;
+        Globals.isPoseInitialized = true;
 
         RobotNetworkV2 network = RobotNetworkService.get();
         SplineTracker tracker = new SplineTracker(robot);
