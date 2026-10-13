@@ -241,9 +241,8 @@ public abstract class ScheduledSubsystem<A> {
 
     private Method resolveTargetMethod(Method scheduleMethod) {
         try {
-            Method target = getClass().getMethod(
-                    scheduleMethod.getName(),
-                    scheduleMethod.getParameterTypes());
+            Method target = findScheduleTarget(
+                    scheduleMethod.getName(), scheduleMethod.getParameterTypes());
             target.setAccessible(true);
             return target;
         } catch (NoSuchMethodException e) {
@@ -254,6 +253,18 @@ public abstract class ScheduledSubsystem<A> {
                             + Arrays.toString(scheduleMethod.getParameterTypes()),
                     e);
         }
+    }
+
+    private Method findScheduleTarget(String name, Class<?>[] parameterTypes)
+            throws NoSuchMethodException {
+        for (Class<?> type = getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                return type.getDeclaredMethod(name, parameterTypes);
+            } catch (NoSuchMethodException ignored) {
+                // The target may be non-public or inherited.
+            }
+        }
+        throw new NoSuchMethodException(name);
     }
 
     private void validateScheduleApi() {

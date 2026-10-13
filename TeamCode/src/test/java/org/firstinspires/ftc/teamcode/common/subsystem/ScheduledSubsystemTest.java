@@ -7,11 +7,33 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ScheduledSubsystemTest {
+
+    @Test
+    public void hardwareActionsAreNotPublicSubsystemApi() {
+        Class<?>[] types = {Intaker.class, Belt.class, Door.class, Classifier.class, Shooter.class};
+        for (Class<?> type : types) {
+            for (Class<?> api : type.getDeclaredClasses()) {
+                if (!api.getSimpleName().equals("Schedule")) continue;
+                for (Method scheduledMethod : api.getDeclaredMethods()) {
+                    try {
+                        Method hardwareMethod = type.getDeclaredMethod(
+                                scheduledMethod.getName(), scheduledMethod.getParameterTypes());
+                        assertFalse(type.getSimpleName() + "." + hardwareMethod.getName(),
+                                Modifier.isPublic(hardwareMethod.getModifiers()));
+                    } catch (NoSuchMethodException e) {
+                        throw new AssertionError("Missing hardware implementation for " + scheduledMethod, e);
+                    }
+                }
+            }
+        }
+    }
 
     interface TestSchedule extends ScheduleApi<TestSchedule> {
         TestSchedule add(int value);

@@ -67,7 +67,6 @@ public class IntakerTest extends LinearOpMode {
 
                 if (gamepad1.leftBumperWasPressed()) {
                     robot.subsystem.intaker.schedule().intakerIn(1).execute();
-                    robot.subsystem.intaker.intakerIn();
                 } else if (gamepad1.leftBumperWasReleased()) {
                     robot.subsystem.intaker.schedule().intakerIn(1).execute();
                 }

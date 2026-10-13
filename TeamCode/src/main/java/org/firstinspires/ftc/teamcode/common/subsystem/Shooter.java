@@ -82,7 +82,7 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         right.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
     }
 
-    public Shooter back(){
+    Shooter back(){
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -121,7 +121,7 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         robot.telemetry.addData("targetRPM", r);
     }
 
-    public Shooter shoot(double distanceMM) {
+    Shooter shoot(double distanceMM) {
         r = getRPM(distanceMM);
         double gain = getVoltageGain();
         setTargetVelocity(r * gain, r * gain);
@@ -133,7 +133,7 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
      * @param targetRPM Target RPM
      * @return Chained call
      */
-    public Shooter staticShoot(double targetRPM) {
+    Shooter staticShoot(double targetRPM) {
 //        updatePIDF();
         robot.telemetry.addLine(ShooterP + " " + ShooterI + " " + ShooterD + " " + ShooterF);
         double gain = getVoltageGain();
@@ -142,16 +142,16 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         return this;
     }
 
-    public Shooter shoot(int i, double x1, double x2) {
+    Shooter shoot(int i, double x1, double x2) {
         setTargetVelocity(x1, x2);
         return this;
     }
 
-    public Shooter shoot() {
+    Shooter shoot() {
         return this.staticShoot(RPM);
     }
 
-    public Shooter stop() {
+    Shooter stop() {
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -231,7 +231,7 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         return right.getVelocity() / COUNTS_PER_MOTOR_REV * 60.0;
     }
 
-    public void setPower(double power) {
+    void setPower(double power) {
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
