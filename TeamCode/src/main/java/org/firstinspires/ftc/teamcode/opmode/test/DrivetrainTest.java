@@ -23,6 +23,7 @@ public class DrivetrainTest extends LinearOpMode {
     @Override
     public void runOpMode() {
         Robot robot = new Robot();
+        robot.init(this);
         robot.opMode = this;
         robot.hardwareMap = hardwareMap;
         robot.telemetry = telemetry;

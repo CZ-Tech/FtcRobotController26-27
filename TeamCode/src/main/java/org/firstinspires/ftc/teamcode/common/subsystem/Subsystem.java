@@ -7,7 +7,7 @@ public class Subsystem {
 
     public final Intaker intaker;
     public final Thrower thrower;
-    public final Shooter shooter;
+    public  Shooter shooter;
     public final Belt belt;
     public final Door door;
     public final Classifier classifier;
@@ -16,7 +16,7 @@ public class Subsystem {
         this.robot = robot;
         this.intaker = new Intaker(robot);
         this.thrower = new Thrower(robot);
-        this.shooter = new Shooter(robot);
+//        this.shooter = new Shooter(robot);
         this.belt = new Belt(robot);
         this.door = new Door(robot);
         this.classifier = new Classifier(robot);
@@ -26,7 +26,7 @@ public class Subsystem {
     public void update() {
         intaker.update();
         thrower.update();
-        shooter.update();
+//        shooter.update();
         belt.update();
         door.update();
         classifier.update();

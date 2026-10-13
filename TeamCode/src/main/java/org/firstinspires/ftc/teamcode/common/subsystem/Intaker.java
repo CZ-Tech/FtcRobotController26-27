@@ -16,8 +16,7 @@ public class Intaker extends ScheduledSubsystem<Intaker.Schedule> {
 
     public final Robot robot;
 
-    public CRServoImplEx leftArm, rightArm;
-    public DcMotorEx intakerItself;
+    private DcMotorEx intakerItself;
 
     public Intaker(Robot robot) {
         super(Schedule.class);

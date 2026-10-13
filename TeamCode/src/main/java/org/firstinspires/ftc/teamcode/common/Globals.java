@@ -137,7 +137,7 @@ public class Globals {
     // ------------------------------------------------------------------
 
     public static ColorRange targetColor;
-    public static boolean UseVisionLocate = true;
+    public static boolean UseVisionLocate = false;
 
     public static Pose2D RED_GOAL_POS = new Pose2D(DistanceUnit.INCH, -72, 72, AngleUnit.DEGREES, 0);
     public static Pose2D BLUE_GOAL_POS = new Pose2D(DistanceUnit.INCH, -72, -72, AngleUnit.DEGREES, 0);

@@ -36,7 +36,6 @@ public class Robot {
     public MixedOdo odo;
     public Limelight3A limelight;
     public VisionLimelight visionLimelight;
-    public VisionC270 visionC270;
     public AutoAimController autoAimController = new AutoAimController();
 //    public LLMegaTag2 llPos;
 //    public IMU imu;
@@ -60,7 +59,6 @@ public class Robot {
         this.odo = new MixedOdo(this);
 
 
-        this.vision = new Vision(this); //视觉模块
 //        this.visionLimelight = new VisionLimelight(this);
         this.subsystem = new Subsystem(this); //上层子系统
         this.gamepad1 = new GamepadEx(opMode.gamepad1); //一个控制器
