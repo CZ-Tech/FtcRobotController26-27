@@ -15,7 +15,7 @@ public abstract class RobotLinearOpMode extends LinearOpMode {
             runRobotOpMode();
         } finally {
             if (robot.subsystem != null) {
-                robot.subsystem.cancelAllSchedules();
+                robot.subsystem.shutdown();
             }
         }
     }

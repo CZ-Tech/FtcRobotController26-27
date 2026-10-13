@@ -36,9 +36,16 @@ public class Subsystem {
     public void cancelAllSchedules() {
         intaker.cancelSchedule();
         thrower.cancelSchedule();
-        shooter.cancelSchedule();
+        if (shooter != null) shooter.cancelSchedule();
         belt.cancelSchedule();
         door.cancelSchedule();
         classifier.cancelSchedule();
+    }
+
+    /** Cancel work and stop the intake even when its last action has already finished. */
+    public void shutdown() {
+        cancelAllSchedules();
+        update();
+        intaker.stopForShutdown();
     }
 }

@@ -5,31 +5,15 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
-import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
-/**
- * Minimal field-centric drivetrain test.
- *
- * <p>Only initializes MixedOdo and OdoDrivetrain. Vision, subsystems, commands,
- * and the rest of Robot.init() are intentionally not initialized.</p>
- */
+/** Field-centric drivetrain and intake scheduler test. */
 @TeleOp(name = "IntakerTest Test", group = "Test")
 public class IntakerTest extends RobotLinearOpMode {
-    private static final double WHEEL_TEST_POWER = 0.25;
 
     @Override
     protected void runRobotOpMode() {
-        robot.opMode = this;
-        robot.hardwareMap = hardwareMap;
-        robot.telemetry = telemetry;
-
         try {
-            robot.odo = new MixedOdo(robot, false);
-            robot.odoDrivetrain = new OdoDrivetrain(robot);
-
             telemetry.addLine("Headless Drive ready");
             telemetry.addLine("Left stick: field translation");
             telemetry.addLine("Right stick X: turn");

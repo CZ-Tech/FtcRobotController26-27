@@ -39,4 +39,14 @@ public class Intaker extends ScheduledSubsystem<Intaker.Schedule> {
     private Intaker intakerArmStop(){
         return this.setArmPower(0);
     }
+
+    @Override
+    protected void onScheduleCancelled() {
+        setArmPower(0);
+    }
+
+    /** Called by the subsystem owner on OpMode shutdown, even without an active schedule. */
+    void stopForShutdown() {
+        setArmPower(0);
+    }
 }
