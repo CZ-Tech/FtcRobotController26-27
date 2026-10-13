@@ -13,13 +13,11 @@ public class Classifier extends ScheduledSubsystem<Classifier.Schedule> {
         Schedule out();
     }
 
-    public Robot robot;
-    public ServoImplEx classifierServo;
-    public static double IN = 1656, OUT = 2450;
+    private final ServoImplEx classifierServo;
+    private static final double IN = 1656, OUT = 2450;
 
     public Classifier(@NonNull Robot robot){
         super(Schedule.class);
-        this.robot = robot;
         classifierServo = robot.hardwareMap.get(ServoImplEx.class, Globals.classifierServo);
     }
 

@@ -16,22 +16,16 @@ public class Door extends ScheduledSubsystem<Door.Schedule> {
         Schedule end();
     }
 
-    public Robot robot;
+    private final CRServoImplEx doorWheel;
 
-    public CRServoImplEx doorWheel;
-//    public ServoImplEx doorController;
-
-    public static double DOOR_END = 1200;    //在上面
-    public static double DOOR_STANDBY = 1980;//推出去
+    private static final double DOOR_END = 1200;    //在上面
+    private static final double DOOR_STANDBY = 1980;//推出去
 
     public Door(Robot robot){
         super(Schedule.class);
-        this.robot = robot;
-//        doorController = robot.hardwareMap.get(ServoImplEx.class, Globals.doorController);
         doorWheel = robot.hardwareMap.get(CRServoImplEx.class, Globals.doorWheel);
 
         doorWheel.setPwmRange(new PwmControl.PwmRange(500, 2500));
-//        doorController.setPwmRange(new PwmControl.PwmRange(500, 2500));
     }
 
     public Door spin(double power){

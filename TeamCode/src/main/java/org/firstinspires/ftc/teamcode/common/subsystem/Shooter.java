@@ -32,15 +32,15 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         Schedule setPower(double power);
     }
 
-    private Robot robot;
-    public DcMotorEx left, right;
+    private final Robot robot;
+    private final DcMotorEx left, right;
     public static double RPM = 3500 ;
     static final double COUNTS_PER_MOTOR_REV = 28.0;
-    public double r = 0;
+    private double r = 0;
     private boolean isRunning = false;
 
     public static int AccelFilterWindowSize = 10;
-    public double[] shootAccelWindow = new double[AccelFilterWindowSize];
+    private double[] shootAccelWindow = new double[AccelFilterWindowSize];
     private int currentShootAccelWindowIndex = 0;
     private double lastCallAccelTime = System.currentTimeMillis();
     private double lastVelocity = 0;
@@ -220,6 +220,15 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         return Math.abs(leftRPM - r) <= Globals.SHOOT_VEL_TOLERANCE &&
                 Math.abs(rightRPM - r) <= Globals.SHOOT_VEL_TOLERANCE &&
                 isRunning;
+    }
+
+    /** Read-only telemetry access; never expose mutable motor hardware handles. */
+    public double getLeftRPM() {
+        return left.getVelocity() / COUNTS_PER_MOTOR_REV * 60.0;
+    }
+
+    public double getRightRPM() {
+        return right.getVelocity() / COUNTS_PER_MOTOR_REV * 60.0;
     }
 
     public void setPower(double power) {
