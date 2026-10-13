@@ -28,25 +28,25 @@ public class Door extends ScheduledSubsystem<Door.Schedule> {
         doorWheel.setPwmRange(new PwmControl.PwmRange(500, 2500));
     }
 
-    Door spin(double power){
+    private Door spin(double power){
         doorWheel.setPower(power);
         return this;
     }
 
-    Door spin(){
+    private Door spin(){
         return this.spin(1);
     }
 
-    Door stop(){
+    private Door stop(){
         return this.spin(0);
     }
 
-    Door standBy(){
+    private Door standBy(){
 //        doorController.setPosition((DOOR_STANDBY - 500.0) / 2000.0);
         return this;
     }
 
-    Door end(){
+    private Door end(){
 //        doorController.setPosition((DOOR_END - 500.0) / 2000.0);
         return this;
     }

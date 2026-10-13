@@ -25,8 +25,8 @@ public class ScheduledSubsystemTest {
                     try {
                         Method hardwareMethod = type.getDeclaredMethod(
                                 scheduledMethod.getName(), scheduledMethod.getParameterTypes());
-                        assertFalse(type.getSimpleName() + "." + hardwareMethod.getName(),
-                                Modifier.isPublic(hardwareMethod.getModifiers()));
+                        assertTrue(type.getSimpleName() + "." + hardwareMethod.getName(),
+                                Modifier.isPrivate(hardwareMethod.getModifiers()));
                     } catch (NoSuchMethodException e) {
                         throw new AssertionError("Missing hardware implementation for " + scheduledMethod, e);
                     }

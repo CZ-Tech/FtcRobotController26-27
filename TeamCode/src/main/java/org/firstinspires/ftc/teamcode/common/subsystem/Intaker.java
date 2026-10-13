@@ -28,15 +28,15 @@ public class Intaker extends ScheduledSubsystem<Intaker.Schedule> {
         return this;
     }
 
-    Intaker intakerIn(double power){
+    private Intaker intakerIn(double power){
         return this.setArmPower(power);
     }
 
-    Intaker intakerIn(){
+    private Intaker intakerIn(){
         return this.intakerIn(1);
     }
 
-    Intaker intakerArmStop(){
+    private Intaker intakerArmStop(){
         return this.setArmPower(0);
     }
 }

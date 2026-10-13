@@ -25,19 +25,19 @@ public class Belt extends ScheduledSubsystem<Belt.Schedule> {
         return this;
     }
 
-    Belt up(double power){
+    private Belt up(double power){
         return beltPower(Math.abs(power));
     }
 
-    Belt up(){
+    private Belt up(){
         return this.up(-1);
     }
 
-    Belt down(){
+    private Belt down(){
         return beltPower(-0.8);
     }
 
-    Belt stop(){
+    private Belt stop(){
         return this.beltPower(0);
     }
 }

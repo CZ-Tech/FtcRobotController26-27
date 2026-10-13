@@ -21,12 +21,12 @@ public class Classifier extends ScheduledSubsystem<Classifier.Schedule> {
         classifierServo = robot.hardwareMap.get(ServoImplEx.class, Globals.classifierServo);
     }
 
-    Classifier in(){
+    private Classifier in(){
         classifierServo.setPosition((IN - 500.0) / 2000.0);
         return this;
     }
 
-    Classifier out(){
+    private Classifier out(){
         classifierServo.setPosition((OUT - 500.0) / 2000.0);
         return this;
     }
