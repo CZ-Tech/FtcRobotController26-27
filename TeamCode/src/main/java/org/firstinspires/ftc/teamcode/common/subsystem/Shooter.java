@@ -21,16 +21,8 @@ import org.firstinspires.ftc.teamcode.common.Robot;
 
 import java.util.Arrays;
 
-public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
-    public interface Schedule extends ScheduleApi<Schedule> {
-        Schedule back();
-        Schedule shoot(double distanceMM);
-        Schedule staticShoot(double targetRPM);
-        Schedule shoot(int i, double leftRPM, double rightRPM);
-        Schedule shoot();
-        Schedule stop();
-        Schedule setPower(double power);
-    }
+@GenerateSchedule
+public class Shooter {
 
     private final Robot robot;
     private final DcMotorEx left, right;
@@ -59,7 +51,6 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
      * @param robot
      */
     public Shooter(Robot robot) {
-        super(Schedule.class);
         this.robot = robot;
         left = robot.hardwareMap.get(DcMotorEx.class, Globals.leftShooter);
         right = robot.hardwareMap.get(DcMotorEx.class, Globals.rightShooter);
@@ -82,13 +73,12 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         right.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
     }
 
-    private Shooter back(){
+    public void back(){
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         left.setPower(-0.5);
         right.setPower(0.5);
-        return this;
     }
 
     /**
@@ -121,11 +111,10 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         robot.telemetry.addData("targetRPM", r);
     }
 
-    private Shooter shoot(double distanceMM) {
+    public void shoot(double distanceMM) {
         r = getRPM(distanceMM);
         double gain = getVoltageGain();
         setTargetVelocity(r * gain, r * gain);
-        return this;
     }
 
     /**
@@ -133,31 +122,28 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
      * @param targetRPM Target RPM
      * @return Chained call
      */
-    private Shooter staticShoot(double targetRPM) {
+    public void staticShoot(double targetRPM) {
 //        updatePIDF();
         robot.telemetry.addLine(ShooterP + " " + ShooterI + " " + ShooterD + " " + ShooterF);
         double gain = getVoltageGain();
         r = targetRPM * gain;
         setTargetVelocity(r, r);
-        return this;
     }
 
-    private Shooter shoot(int i, double x1, double x2) {
+    public void shoot(int i, double x1, double x2) {
         setTargetVelocity(x1, x2);
-        return this;
     }
 
-    private Shooter shoot() {
-        return this.staticShoot(RPM);
+    public void shoot() {
+        this.staticShoot(RPM);
     }
 
-    private Shooter stop() {
+    public void stop() {
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         left.setPower(0);
         right.setPower(0);
-        return this;
     }
 
     public static double distanceToRPM(DistanceUnit unit, double distance) {
@@ -231,7 +217,7 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         return right.getVelocity() / COUNTS_PER_MOTOR_REV * 60.0;
     }
 
-    private void setPower(double power) {
+    public void setPower(double power) {
         isRunning = false;
         left.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         right.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -239,3 +225,4 @@ public class Shooter extends ScheduledSubsystem<Shooter.Schedule> {
         right.setPower(power);
     }
 }
+

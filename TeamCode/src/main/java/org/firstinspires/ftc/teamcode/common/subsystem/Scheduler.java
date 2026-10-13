@@ -23,10 +23,11 @@ import java.util.function.LongSupplier;
  * mailbox, and logically cancels the currently active schedule. Hardware remains owned
  * by the OpMode/control thread and is only touched from {@link #update()}.</p>
  */
-public abstract class ScheduledSubsystem<A> {
+public class Scheduler<A> {
     private static final int MAX_STEPS_PER_UPDATE = 32;
 
     private final Class<A> apiType;
+    private final Object target;
     private final LongSupplier nanoTime;
     private final AtomicReference<BuiltSchedule> incoming = new AtomicReference<>();
     private final Object executionLock = new Object();
@@ -34,11 +35,15 @@ public abstract class ScheduledSubsystem<A> {
     private volatile BuiltSchedule active;
     private final A cancelledProxy;
 
-    protected ScheduledSubsystem(Class<A> apiType) {
-        this(apiType, System::nanoTime);
+    public static <A> Scheduler<A> of(Class<A> apiType, Object target) {
+        return new Scheduler<>(apiType, target);
     }
 
-    ScheduledSubsystem(Class<A> apiType, LongSupplier nanoTime) {
+    protected Scheduler(Class<A> apiType, Object target) {
+        this(apiType, target, System::nanoTime);
+    }
+
+    Scheduler(Class<A> apiType, Object target, LongSupplier nanoTime) {
         if (apiType == null || !apiType.isInterface()) {
             throw new IllegalArgumentException("schedule API must be an interface");
         }
@@ -48,6 +53,7 @@ public abstract class ScheduledSubsystem<A> {
         }
 
         this.apiType = apiType;
+        this.target = java.util.Objects.requireNonNull(target, "target");
         this.nanoTime = nanoTime;
         validateScheduleApi();
         this.cancelledProxy = createCancelledProxy();
@@ -96,7 +102,7 @@ public abstract class ScheduledSubsystem<A> {
             if (wasCancelled) onScheduleCancelled();
         }
 
-        periodic();
+        if (target instanceof ScheduleLifecycle) ((ScheduleLifecycle) target).periodic();
     }
 
     /**
@@ -119,13 +125,17 @@ public abstract class ScheduledSubsystem<A> {
     }
 
     /** Optional normal per-loop work, always called from {@link #update()}. */
-    protected void periodic() {}
+    private void onScheduleCancelled() {
+        if (target instanceof ScheduleLifecycle) {
+            ((ScheduleLifecycle) target).onScheduleCancelled();
+        }
+    }
 
-    /**
-     * Optional hardware-safe reaction when an executed schedule is preempted/cancelled.
-     * Called only from {@link #update()}, never from a producer thread.
-     */
-    protected void onScheduleCancelled() {}
+    public void shutdown() {
+        cancelSchedule();
+        update();
+        if (target instanceof ScheduleLifecycle) ((ScheduleLifecycle) target).onShutdown();
+    }
 
     private A createDraftProxy(DraftSchedule draft) {
         InvocationHandler handler = (proxy, method, args) ->
@@ -257,7 +267,7 @@ public abstract class ScheduledSubsystem<A> {
 
     private Method findScheduleTarget(String name, Class<?>[] parameterTypes)
             throws NoSuchMethodException {
-        for (Class<?> type = getClass(); type != null; type = type.getSuperclass()) {
+        for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
             try {
                 return type.getDeclaredMethod(name, parameterTypes);
             } catch (NoSuchMethodException ignored) {
@@ -356,7 +366,7 @@ public abstract class ScheduledSubsystem<A> {
         public boolean update(long nowNanos) {
             if (executed) return true;
             try {
-                method.invoke(ScheduledSubsystem.this, args);
+                method.invoke(target, args);
                 executed = true;
                 return true;
             } catch (IllegalAccessException e) {

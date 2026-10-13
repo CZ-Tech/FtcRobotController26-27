@@ -8,7 +8,6 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
@@ -16,21 +15,19 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ScheduledSubsystemTest {
 
     @Test
-    public void hardwareActionsAreNotPublicSubsystemApi() {
+    public void generatedScheduleMethodsMatchPublicBusinessActions() {
         Class<?>[] types = {Intaker.class, Belt.class, Door.class, Classifier.class, Shooter.class};
         for (Class<?> type : types) {
-            for (Class<?> api : type.getDeclaredClasses()) {
-                if (!api.getSimpleName().equals("Schedule")) continue;
+            try {
+                Class<?> api = Class.forName(type.getName() + "Schedule");
                 for (Method scheduledMethod : api.getDeclaredMethods()) {
-                    try {
-                        Method hardwareMethod = type.getDeclaredMethod(
-                                scheduledMethod.getName(), scheduledMethod.getParameterTypes());
-                        assertTrue(type.getSimpleName() + "." + hardwareMethod.getName(),
-                                Modifier.isPrivate(hardwareMethod.getModifiers()));
-                    } catch (NoSuchMethodException e) {
-                        throw new AssertionError("Missing hardware implementation for " + scheduledMethod, e);
-                    }
+                    Method hardwareMethod = type.getDeclaredMethod(
+                            scheduledMethod.getName(), scheduledMethod.getParameterTypes());
+                    assertTrue(hardwareMethod.getName(),
+                            java.lang.reflect.Modifier.isPublic(hardwareMethod.getModifiers()));
                 }
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError("Generated schedule does not match " + type, e);
             }
         }
     }
@@ -44,17 +41,21 @@ public class ScheduledSubsystemTest {
         BrokenSchedule missing();
     }
 
-    private static final class TestSubsystem extends ScheduledSubsystem<TestSchedule> {
+    private static final class TestSubsystem implements ScheduleLifecycle {
         int value;
         int cancelledCount;
+        final Scheduler<TestSchedule> scheduler;
 
         TestSubsystem(AtomicLong clock) {
-            super(TestSchedule.class, clock::get);
+            scheduler = new Scheduler<>(TestSchedule.class, this, clock::get);
         }
 
-        public TestSubsystem add(int amount) {
+        TestSchedule schedule() { return scheduler.schedule(); }
+        void update() { scheduler.update(); }
+        boolean hasActiveSchedule() { return scheduler.hasActiveSchedule(); }
+
+        public void add(int amount) {
             value += amount;
-            return this;
         }
 
         public void set(int value) {
@@ -62,14 +63,14 @@ public class ScheduledSubsystemTest {
         }
 
         @Override
-        protected void onScheduleCancelled() {
+        public void onScheduleCancelled() {
             cancelledCount++;
         }
     }
 
-    private static final class BrokenSubsystem extends ScheduledSubsystem<BrokenSchedule> {
+    private static final class BrokenSubsystem {
         BrokenSubsystem(AtomicLong clock) {
-            super(BrokenSchedule.class, clock::get);
+            new Scheduler<>(BrokenSchedule.class, this, clock::get);
         }
     }
 
