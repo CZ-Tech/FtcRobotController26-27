@@ -26,7 +26,6 @@ public class MixedOdo {
     // ==========================================
     // 跨 OpMode 全局静态偏移量记忆
     // ==========================================
-    public static boolean isPoseInitialized = false;
     public static double offsetX = 0.0;
     public static double offsetY = 0.0;
     public static double offsetHeading = 0.0;
@@ -52,12 +51,12 @@ public class MixedOdo {
 
         // 只有机器彻底断电重启后的第一次运行，才允许重置硬件。
         // TeleOp 时不要调用硬件重置，让 Pinpoint 顺着 Auto 继续算。
-        if (!isPoseInitialized) {
+        if (!Globals.isPoseInitialized) {
             pinpoint.resetPosAndIMU();
             if (useVisionLocate) {
                 this.visualLocater = new WebCamAprilTagLocate(robot.hardwareMap.get(WebcamName.class, Globals.logiC270));
             } else {
-                isPoseInitialized = true;
+                Globals.isPoseInitialized = true;
             }
         } else {
             Log.i("MixedOdo", "TeleOp Mode: Restored coordinate offsets from Auto.");
@@ -68,7 +67,7 @@ public class MixedOdo {
 
     public void reCollaborate() {
         if (useVisionLocate) {
-            isPoseInitialized = false;
+            Globals.isPoseInitialized = false;
             if (visualLocater == null) {
                 this.visualLocater = new WebCamAprilTagLocate(robot.hardwareMap.get(WebcamName.class, Globals.logiC270));
             }
@@ -78,7 +77,7 @@ public class MixedOdo {
             }
         } else {
             resetPosAndIMU();
-            isPoseInitialized = true;
+            Globals.isPoseInitialized = true;
         }
     }
 
@@ -91,14 +90,14 @@ public class MixedOdo {
      */
     public synchronized void update() {
         pinpoint.update();
-        if (isPoseInitialized) {
+        if (Globals.isPoseInitialized) {
             updateFieldPose();
         }
 
     }
 
     public Pose2D getPosition() {
-        if (!isPoseInitialized) {
+        if (!Globals.isPoseInitialized) {
             // 如果还没初始化完，先返回原始里程计坐标（防止空指针或失控）
             return pinpoint.getPosition();
         }
@@ -210,7 +209,7 @@ public class MixedOdo {
                 Log.i(threadName, "Initialization Complete! Global Pose locked at: " + optimizedInitPose.toString() + ", " + optimizedInitPose.getHeading(AngleUnit.DEGREES) + "DEG");
 
                 stop();
-                isPoseInitialized = true;
+        Globals.isPoseInitialized = true;
                 if (visualLocater != null) {
                     visualLocater.stop();
                     visualLocater = null;

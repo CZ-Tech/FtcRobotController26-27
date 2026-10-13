@@ -1,23 +1,21 @@
 package org.firstinspires.ftc.teamcode.opmode.test;
 
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.common.Robot;
+import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
 
 @Disabled
 @TeleOp(name = "Limelight Test", group = "Test")
-public class LimelightTest extends LinearOpMode {
-    public Robot robot = new Robot();
+public class LimelightTest extends RobotLinearOpMode {
 
     public static int id = 20;
 
     @Override
-    public void runOpMode(){
-        robot.init(this);
+    protected void runRobotOpMode(){
         robot.telemetry.addLine("Wait for start");
         robot.telemetry.update();
 
@@ -25,7 +23,7 @@ public class LimelightTest extends LinearOpMode {
 
         ElapsedTime runtime = new ElapsedTime();
         runtime.reset();
-        while(opModeIsActive()){
+        runWhileActive(() -> {
 //            int tag = robot.visionLimelight.getTargetAprilTag();
 //            switch (tag){
 //                case 21: robot.telemetry.addData("AprilTag", "🟢🟣🟣");break;
@@ -40,7 +38,7 @@ public class LimelightTest extends LinearOpMode {
             robot.telemetry.addData("dis", result[10]);
 
             robot.telemetry.update();
-        }
+        });
     }
 }
 

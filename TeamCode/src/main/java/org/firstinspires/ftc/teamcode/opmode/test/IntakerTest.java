@@ -1,37 +1,19 @@
 package org.firstinspires.ftc.teamcode.opmode.test;
 
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.teamcode.common.Robot;
-import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
-import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
+import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
-/**
- * Minimal field-centric drivetrain test.
- *
- * <p>Only initializes MixedOdo and OdoDrivetrain. Vision, subsystems, commands,
- * and the rest of Robot.init() are intentionally not initialized.</p>
- */
+/** Field-centric drivetrain and intake scheduler test. */
 @TeleOp(name = "IntakerTest Test", group = "Test")
-public class IntakerTest extends LinearOpMode {
-    private static final double WHEEL_TEST_POWER = 0.25;
+public class IntakerTest extends RobotLinearOpMode {
 
     @Override
-    public void runOpMode() {
-        Robot robot = new Robot();
-        robot.init(this);
-        robot.opMode = this;
-        robot.hardwareMap = hardwareMap;
-        robot.telemetry = telemetry;
-
+    protected void runRobotOpMode() {
         try {
-            robot.odo = new MixedOdo(robot, false);
-            robot.odoDrivetrain = new OdoDrivetrain(robot);
-
             telemetry.addLine("Headless Drive ready");
             telemetry.addLine("Left stick: field translation");
             telemetry.addLine("Right stick X: turn");
@@ -43,7 +25,7 @@ public class IntakerTest extends LinearOpMode {
 
             waitForStart();
 
-            while (opModeIsActive()) {
+            runWhileActive(() -> {
                 robot.odo.update();
 
                 double axial = -gamepad1.left_stick_y;
@@ -68,9 +50,9 @@ public class IntakerTest extends LinearOpMode {
                 if (gamepad1.leftBumperWasPressed()) {
                     robot.subsystem.intaker.schedule().intakerIn(1).execute();
                 } else if (gamepad1.leftBumperWasReleased()) {
-                    robot.subsystem.intaker.schedule().intakerIn(1).execute();
+                    robot.subsystem.intaker.schedule().intakerArmStop().execute();
                 }
-            }
+            });
         } finally {
             if (robot.odoDrivetrain != null) {
                 robot.odoDrivetrain.stopMotor();
