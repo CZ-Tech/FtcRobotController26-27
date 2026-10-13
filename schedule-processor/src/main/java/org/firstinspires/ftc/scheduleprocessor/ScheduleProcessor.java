@@ -82,9 +82,9 @@ public final class ScheduleProcessor extends AbstractProcessor {
                 valid = false;
                 continue;
             }
-            if (!method.getTypeParameters().isEmpty() || method.isVarArgs()
+            if (!method.getTypeParameters().isEmpty()
                     || !method.getThrownTypes().isEmpty()) {
-                error(method, "Generated methods do not yet support generic method parameters, varargs or throws");
+                error(method, "Generated methods do not yet support generic method parameters or throws");
                 valid = false;
                 continue;
             }
@@ -92,11 +92,17 @@ public final class ScheduleProcessor extends AbstractProcessor {
             StringBuilder signature = new StringBuilder(methodName).append("(");
             StringBuilder args = new StringBuilder();
             boolean first = true;
+            int parameterIndex = 0;
             for (VariableElement param : method.getParameters()) {
                 if (!first) { signature.append(", "); args.append(", "); }
                 first = false;
-                signature.append(param.asType()).append(" ").append(param.getSimpleName());
+                String parameterType = param.asType().toString();
+                if (method.isVarArgs() && parameterIndex == method.getParameters().size() - 1) {
+                    parameterType = parameterType.substring(0, parameterType.length() - 2) + "...";
+                }
+                signature.append(parameterType).append(" ").append(param.getSimpleName());
                 args.append(param.getSimpleName());
+                parameterIndex++;
             }
             signature.append(")");
             if (delayed) {
