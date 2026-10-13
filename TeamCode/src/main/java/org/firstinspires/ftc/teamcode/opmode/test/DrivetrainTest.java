@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.opmode.test;
 
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
@@ -9,6 +8,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
+import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
 /**
  * Minimal field-centric drivetrain test.
@@ -17,13 +17,11 @@ import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
  * and the rest of Robot.init() are intentionally not initialized.</p>
  */
 @TeleOp(name = "DrivetrainTest Test", group = "Test")
-public class DrivetrainTest extends LinearOpMode {
+public class DrivetrainTest extends RobotLinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
 
     @Override
-    public void runOpMode() {
-        Robot robot = new Robot();
-        robot.init(this);
+    protected void runRobotOpMode() {
         robot.opMode = this;
         robot.hardwareMap = hardwareMap;
         robot.telemetry = telemetry;
@@ -43,7 +41,7 @@ public class DrivetrainTest extends LinearOpMode {
 
             waitForStart();
 
-            while (opModeIsActive()) {
+            runWhileActive(() -> {
                 robot.odo.update();
 
                 double axial = -gamepad1.left_stick_y;
@@ -64,7 +62,7 @@ public class DrivetrainTest extends LinearOpMode {
                 telemetry.addData("Lateral", "%.2f", lateral);
                 telemetry.addData("Yaw", "%.2f", yaw);
                 telemetry.update();
-            }
+            });
         } finally {
             if (robot.odoDrivetrain != null) {
                 robot.odoDrivetrain.stopMotor();

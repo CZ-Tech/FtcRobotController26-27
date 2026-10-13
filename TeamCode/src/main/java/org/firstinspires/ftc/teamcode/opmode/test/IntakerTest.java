@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.opmode.test;
 
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
@@ -9,6 +8,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
+import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
 /**
  * Minimal field-centric drivetrain test.
@@ -17,13 +17,11 @@ import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
  * and the rest of Robot.init() are intentionally not initialized.</p>
  */
 @TeleOp(name = "IntakerTest Test", group = "Test")
-public class IntakerTest extends LinearOpMode {
+public class IntakerTest extends RobotLinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
 
     @Override
-    public void runOpMode() {
-        Robot robot = new Robot();
-        robot.init(this);
+    protected void runRobotOpMode() {
         robot.opMode = this;
         robot.hardwareMap = hardwareMap;
         robot.telemetry = telemetry;
@@ -43,7 +41,7 @@ public class IntakerTest extends LinearOpMode {
 
             waitForStart();
 
-            while (opModeIsActive()) {
+            runWhileActive(() -> {
                 robot.odo.update();
 
                 double axial = -gamepad1.left_stick_y;
@@ -68,9 +66,9 @@ public class IntakerTest extends LinearOpMode {
                 if (gamepad1.leftBumperWasPressed()) {
                     robot.subsystem.intaker.schedule().intakerIn(1).execute();
                 } else if (gamepad1.leftBumperWasReleased()) {
-                    robot.subsystem.intaker.schedule().intakerIn(1).execute();
+                    robot.subsystem.intaker.schedule().intakerArmStop().execute();
                 }
-            }
+            });
         } finally {
             if (robot.odoDrivetrain != null) {
                 robot.odoDrivetrain.stopMotor();

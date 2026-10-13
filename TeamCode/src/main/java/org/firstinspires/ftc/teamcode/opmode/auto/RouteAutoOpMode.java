@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.opmode.auto;
 
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
@@ -13,6 +12,7 @@ import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkService;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkV2;
 import org.firstinspires.ftc.teamcode.common.network.RouteRepository;
+import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
 /**
  * One persisted AzConductor route exposed as one real FTC Autonomous OpMode.
@@ -21,7 +21,7 @@ import org.firstinspires.ftc.teamcode.common.network.RouteRepository;
  * OpMode therefore selects exactly one route; pressing START immediately starts that
  * route. There is intentionally no independent "execute path" control plane.</p>
  */
-public final class RouteAutoOpMode extends LinearOpMode {
+public final class RouteAutoOpMode extends RobotLinearOpMode {
     private final String routeName;
 
     public RouteAutoOpMode(String routeName) {
@@ -32,9 +32,7 @@ public final class RouteAutoOpMode extends LinearOpMode {
     }
 
     @Override
-    public void runOpMode() {
-        Robot robot = new Robot();
-        robot.init(this);
+    protected void runRobotOpMode() throws InterruptedException {
         MixedOdo.isPoseInitialized = true;
 
         RobotNetworkV2 network = RobotNetworkService.get();
@@ -69,7 +67,7 @@ public final class RouteAutoOpMode extends LinearOpMode {
                 routeName);
 
         try {
-            while (opModeIsActive()) {
+            runWhileActive(() -> {
                 if (loader.isRunning()) {
                     loader.update();
                     while (loader.pollEvent() != null) {
@@ -81,7 +79,7 @@ public final class RouteAutoOpMode extends LinearOpMode {
                                 0,
                                 routeName);
                         requestOpModeStop();
-                        break;
+                        return;
                     }
                 }
 
@@ -98,8 +96,7 @@ public final class RouteAutoOpMode extends LinearOpMode {
                 telemetry.addData("Execution", network.execution.snapshot().state);
                 telemetry.addData("Frame", loader.getCurrentFrameIndex());
                 telemetry.update();
-                idle();
-            }
+            });
         } finally {
             loader.cancel();
             tracker.stopMotor();
