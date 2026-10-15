@@ -9,11 +9,6 @@ public class Subsystem {
 
     private final List<Scheduler<?>> all = new ArrayList<>();
     public final IntakerScheduler intaker;
-    public final ThrowerScheduler thrower;
-    public ShooterScheduler shooter;
-    public final BeltScheduler belt;
-    public final DoorScheduler door;
-    public final ClassifierScheduler classifier;
 
     private <T extends Scheduler<?>> T add(T instance) {
         all.add(instance);
@@ -23,11 +18,6 @@ public class Subsystem {
     public Subsystem(Robot robot) {
         this.robot = robot;
         this.intaker = add(new IntakerScheduler(new Intaker(robot)));
-        this.thrower = add(new ThrowerScheduler(new Thrower(robot)));
-//        this.shooter = add(new ShooterScheduler(new Shooter(robot)));
-        this.belt = add(new BeltScheduler(new Belt(robot)));
-        this.door = add(new DoorScheduler(new Door(robot)));
-        this.classifier = add(new ClassifierScheduler(new Classifier(robot)));
     }
 
     /** Advance every subsystem scheduler once from the OpMode/control thread. */
