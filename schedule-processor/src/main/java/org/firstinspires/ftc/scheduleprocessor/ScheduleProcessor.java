@@ -16,6 +16,9 @@ import javax.tools.JavaFileObject;
 public final class ScheduleProcessor extends AbstractProcessor {
     private static final String ACTION = "org.firstinspires.ftc.teamcode.common.subsystem.ScheduledAction";
     private static final String DIRECT = "org.firstinspires.ftc.teamcode.common.subsystem.DirectAction";
+    private static final String PARAM = "org.firstinspires.ftc.teamcode.common.util.Param";
+    /** Mirrors {@code Param.NO_DEFAULT}; the processor cannot depend on TeamCode. */
+    private static final String NO_DEFAULT = "\u0000";
     private static final Set<String> RESERVED = Set.of(
             "schedule", "execute", "cancel", "waitMillis", "waitUntil",
             "isCancelled", "isExecuted", "update", "shutdown", "cancelSchedule",
@@ -93,6 +96,7 @@ public final class ScheduleProcessor extends AbstractProcessor {
             StringBuilder args = new StringBuilder();
             boolean first = true;
             int parameterIndex = 0;
+            boolean sawDefault = false;
             for (VariableElement param : method.getParameters()) {
                 if (!first) { signature.append(", "); args.append(", "); }
                 first = false;
@@ -100,13 +104,50 @@ public final class ScheduleProcessor extends AbstractProcessor {
                 if (method.isVarArgs() && parameterIndex == method.getParameters().size() - 1) {
                     parameterType = parameterType.substring(0, parameterType.length() - 2) + "...";
                 }
-                signature.append(parameterType).append(" ").append(param.getSimpleName());
-                args.append(param.getSimpleName());
+
+                // Control Hub cannot read parameter names reflectively, so every generated
+                // parameter carries @Param. A source-level @Param may rename the parameter
+                // and give it a default value; both are copied through.
+                String javaName = param.getSimpleName().toString();
+                String paramName = javaName;
+                String defaultValue = null;
+                for (AnnotationMirror mirror : param.getAnnotationMirrors()) {
+                    if (!mirror.getAnnotationType().toString().equals(PARAM)) continue;
+                    for (var entry : mirror.getElementValues().entrySet()) {
+                        String key = entry.getKey().getSimpleName().toString();
+                        String text = String.valueOf(entry.getValue().getValue());
+                        if (key.equals("value") && !text.isEmpty()) paramName = text;
+                        if (key.equals("defaultValue") && !text.equals(NO_DEFAULT)) {
+                            defaultValue = text;
+                        }
+                    }
+                }
+                if (defaultValue != null) {
+                    sawDefault = true;
+                } else if (sawDefault) {
+                    error(param, "Parameters with a defaultValue must be the trailing "
+                            + "parameters of the method; '" + javaName
+                            + "' has no default but follows one that does");
+                    valid = false;
+                }
+
+                signature.append("@").append(PARAM).append("(value = ")
+                        .append(literal(paramName));
+                if (defaultValue != null) {
+                    signature.append(", defaultValue = ").append(literal(defaultValue));
+                }
+                signature.append(") ").append(parameterType).append(" ").append(javaName);
+                args.append(javaName);
                 parameterIndex++;
             }
             signature.append(")");
             if (delayed) {
                 schedule.append("    ").append(scheduleName).append(" ").append(signature).append(";\n");
+                // Shortcut on the scheduler: scheduler.m(args) == scheduler.schedule().m(args).execute().
+                // It only publishes to the mailbox, so unlike direct methods it is safe from any thread.
+                scheduler.append("    public ").append(scheduleName).append(" ").append(signature)
+                        .append(" {\n        return schedule().").append(methodName)
+                        .append("(").append(args).append(").execute();\n    }\n");
             } else {
                 String returnType = method.getReturnType().toString();
                 scheduler.append("    public ").append(returnType).append(" ").append(signature)
@@ -120,6 +161,25 @@ public final class ScheduleProcessor extends AbstractProcessor {
         scheduler.append("}\n");
         write(pkg + "." + scheduleName, schedule.toString(), type);
         write(pkg + "." + schedulerName, scheduler.toString(), type);
+    }
+
+    /** Java string literal that survives any characters, including the NO_DEFAULT sentinel. */
+    private static String literal(String text) {
+        StringBuilder out = new StringBuilder("\"");
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '"': out.append("\\\""); break;
+                case '\\': out.append("\\\\"); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                case '\t': out.append("\\t"); break;
+                default:
+                    if (c < 0x20 || c > 0x7e) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+            }
+        }
+        return out.append('"').toString();
     }
 
     private void write(String name, String content, TypeElement owner) {

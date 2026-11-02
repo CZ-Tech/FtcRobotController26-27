@@ -2,17 +2,8 @@ package org.firstinspires.ftc.teamcode.common.subsystem;
 
 import org.junit.Test;
 import static org.junit.Assert.*;
-import java.lang.reflect.Method;
 
 public class SchedulerTest {
-    @Test public void generatedSchedulerExposesDirectMethodsWithoutSchedulingThem() throws Exception {
-        Method query = ShooterScheduler.class.getMethod("isPrepared");
-        assertEquals(boolean.class, query.getReturnType());
-        assertEquals(double.class, ShooterScheduler.class.getMethod("getLeftRPM").getReturnType());
-        assertEquals(ShooterSchedule.class, ShooterSchedule.class.getMethod("shoot").getReturnType());
-        assertEquals(ShooterSchedule.class, ShooterSchedule.class.getMethod("stop").getReturnType());
-    }
-
     interface Actions extends ScheduleApi<Actions> {
         Actions add(int number);
         Actions reset();

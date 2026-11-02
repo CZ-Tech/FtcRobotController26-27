@@ -4,8 +4,10 @@ import org.firstinspires.ftc.teamcode.common.network.http.HttpExchange;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpRequest;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpResponse;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /** Network V2 router. Contains protocol logic only; never touches robot hardware. */
@@ -18,6 +20,7 @@ public final class RobotApiRouter implements HttpHandler {
     private final RobotRuntimeStore runtimeStore;
     private final CommandCatalog commandCatalog;
     private final OpModeLifecycleService opModes;
+    private final CommandDispatcher commandDispatcher;
     private final RobotEventStream eventStream;
 
     public RobotApiRouter(SessionLease sessionLease,
@@ -25,13 +28,15 @@ public final class RobotApiRouter implements HttpHandler {
                           ExecutionStateStore executionState,
                           RobotRuntimeStore runtimeStore,
                           CommandCatalog commandCatalog,
-                          OpModeLifecycleService opModes) {
+                          OpModeLifecycleService opModes,
+                          CommandDispatcher commandDispatcher) {
         this.sessionLease = sessionLease;
         this.routeStore = routeStore;
         this.executionState = executionState;
         this.runtimeStore = runtimeStore;
         this.commandCatalog = commandCatalog;
         this.opModes = opModes;
+        this.commandDispatcher = commandDispatcher;
         this.eventStream = new RobotEventStream(
                 sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes);
     }
@@ -139,6 +144,15 @@ public final class RobotApiRouter implements HttpHandler {
         if ((PREFIX + "/commands").equals(path)) {
             if ("GET".equals(request.method)) {
                 exchange.send(HttpResponse.json(200, commandCatalog.toJson()));
+            } else {
+                methodNotAllowed(exchange);
+            }
+            return;
+        }
+
+        if ((PREFIX + "/commands/run").equals(path)) {
+            if ("POST".equals(request.method)) {
+                handleCommandRun(exchange);
             } else {
                 methodNotAllowed(exchange);
             }
@@ -325,14 +339,7 @@ public final class RobotApiRouter implements HttpHandler {
             } else {
                 status = 409;
             }
-            exchange.send(HttpResponse.json(
-                    status,
-                    "{\"error\":\"" + JsonUtil.escape(result.code) + "\","
-                            + "\"message\":"
-                            + (result.message == null
-                                ? "null"
-                                : "\"" + JsonUtil.escape(result.message) + "\"")
-                            + ",\"opMode\":" + opModeJson(result.snapshot) + "}"));
+            sendOpModeError(exchange, status, result.code, result.message, result.snapshot);
             return;
         }
 
@@ -340,6 +347,137 @@ public final class RobotApiRouter implements HttpHandler {
                 202,
                 "{\"accepted\":true,\"action\":\"" + action + "\","
                         + "\"name\":\"" + JsonUtil.escape(name) + "\"}"));
+    }
+
+    /**
+     * Validates and hands one catalog command to the robot. Checks run in the documented
+     * order and the command is accepted only after every validation passed; nothing here
+     * waits for the command to execute or touches hardware.
+     */
+    private void handleCommandRun(HttpExchange exchange) throws Exception {
+        JSONObject body = parseJsonObject(exchange.request);
+
+        Object rawName = body == null ? null : body.opt("name");
+        String name = rawName instanceof String ? (String) rawName : "";
+        if (name.trim().isEmpty()) {
+            exchange.send(HttpResponse.json(
+                    400, "{\"error\":\"missing_command_name\"}"));
+            return;
+        }
+
+        Object rawRevision = body.opt("expectedRevision");
+        if (rawRevision == null || JSONObject.NULL.equals(rawRevision)) {
+            exchange.send(HttpResponse.json(
+                    428, "{\"error\":\"expected_revision_required\"}"));
+            return;
+        }
+
+        OpModeLifecycleService.Snapshot snapshot = opModes.snapshot();
+        long expectedRevision = body.optLong("expectedRevision", Long.MIN_VALUE);
+        if (expectedRevision != snapshot.revision) {
+            sendOpModeError(exchange, 409, "state_changed",
+                    "Robot OpMode state changed before the request was applied", snapshot);
+            return;
+        }
+
+        if (!opModes.controllerAvailable()) {
+            sendOpModeError(exchange, 503, "controller_unavailable",
+                    "FTC OpMode controller is unavailable", snapshot);
+            return;
+        }
+
+        CommandCatalog.Descriptor descriptor = commandCatalog.find(name);
+        if (descriptor == null) {
+            sendOpModeError(exchange, 404, "command_not_found",
+                    "No command named " + name, snapshot);
+            return;
+        }
+
+        Object[] arguments;
+        try {
+            arguments = parseCommandArguments(descriptor, body.opt("args"));
+        } catch (IllegalArgumentException e) {
+            sendOpModeError(exchange, 400, "invalid_command_args", e.getMessage(), snapshot);
+            return;
+        }
+
+        if (snapshot.phase != OpModeLifecycleService.Phase.RUNNING) {
+            sendOpModeError(exchange, 409, "command_not_ready",
+                    "Commands run only while an OpMode is RUNNING", snapshot);
+            return;
+        }
+        if (!commandDispatcher.ready()) {
+            sendOpModeError(exchange, 409, "command_not_ready",
+                    "The running OpMode does not accept commands", snapshot);
+            return;
+        }
+
+        if (executionState.snapshot().state == ExecutionStateStore.State.RUNNING) {
+            sendOpModeError(exchange, 409, "route_executing",
+                    "A route is being executed", snapshot);
+            return;
+        }
+
+        if (!commandDispatcher.submit(name, arguments)) {
+            sendOpModeError(exchange, 409, "command_not_ready",
+                    "The running OpMode stopped accepting commands", snapshot);
+            return;
+        }
+
+        exchange.send(HttpResponse.json(
+                202,
+                "{\"accepted\":true,\"name\":\"" + JsonUtil.escape(name) + "\"}"));
+    }
+
+    private static Object[] parseCommandArguments(CommandCatalog.Descriptor descriptor,
+                                                  Object rawArgs) {
+        List<String> values = new ArrayList<>();
+        if (rawArgs != null && !JSONObject.NULL.equals(rawArgs)) {
+            if (!(rawArgs instanceof JSONArray)) {
+                throw new IllegalArgumentException("args must be an array of strings");
+            }
+            JSONArray array = (JSONArray) rawArgs;
+            for (int i = 0; i < array.length(); i++) {
+                Object item = array.opt(i);
+                if (!(item instanceof String)) {
+                    throw new IllegalArgumentException("args[" + i + "] is not a string");
+                }
+                values.add((String) item);
+            }
+        }
+
+        List<String> types = descriptor.typesForArity(values.size());
+        if (types == null) {
+            throw new IllegalArgumentException(
+                    descriptor.name + " does not accept " + values.size() + " argument(s)");
+        }
+        return CommandArgs.convertAll(types, values);
+    }
+
+    /** Parses the request body as a JSON object; null when empty or malformed. */
+    private static JSONObject parseJsonObject(HttpRequest request) {
+        if (request.body.length == 0) return null;
+        try {
+            return new JSONObject(request.bodyUtf8());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void sendOpModeError(HttpExchange exchange,
+                                        int status,
+                                        String code,
+                                        String message,
+                                        OpModeLifecycleService.Snapshot snapshot)
+            throws Exception {
+        exchange.send(HttpResponse.json(
+                status,
+                "{\"error\":\"" + JsonUtil.escape(code) + "\","
+                        + "\"message\":"
+                        + (message == null
+                            ? "null"
+                            : "\"" + JsonUtil.escape(message) + "\"")
+                        + ",\"opMode\":" + opModeJson(snapshot) + "}"));
     }
 
     private static String opModeJson(OpModeLifecycleService.Snapshot snapshot) {

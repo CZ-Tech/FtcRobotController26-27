@@ -1,6 +1,8 @@
 package org.firstinspires.ftc.mockrobot;
 
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog;
+import org.firstinspires.ftc.teamcode.common.network.CommandCatalog.Descriptor;
+import org.firstinspires.ftc.teamcode.common.network.CommandDispatcher;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotApiRouter;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
@@ -11,6 +13,9 @@ import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 /** Composition root for the standalone desktop virtual Robot Controller. */
 public final class MockRobotRuntime implements AutoCloseable {
@@ -23,6 +28,7 @@ public final class MockRobotRuntime implements AutoCloseable {
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
     public final CommandCatalog commands = new CommandCatalog();
     public final OpModeLifecycleService opModes = new OpModeLifecycleService();
+    public final CommandDispatcher commandDispatcher = new CommandDispatcher();
     public final MockSimulationEngine simulation;
     public final MockOpModeBackend opModeBackend;
 
@@ -51,13 +57,20 @@ public final class MockRobotRuntime implements AutoCloseable {
         opModes.attach(opModeBackend);
         simulation.setAutoStopCallback(opModeBackend::externalStop);
 
+        commands.publish(sampleCommands());
+        commandDispatcher.attach((name, args) -> {
+            MockLog.info("Command", name + " " + Arrays.toString(args));
+            return true;
+        });
+
         RobotApiRouter router = new RobotApiRouter(
                 session,
                 routes,
                 execution,
                 runtime,
                 commands,
-                opModes);
+                opModes,
+                commandDispatcher);
         HttpHandler loggingHandler = exchange -> {
             MockLog.debug(
                     "HTTP",
@@ -74,6 +87,30 @@ public final class MockRobotRuntime implements AutoCloseable {
             router.handle(exchange);
         };
         server = new RobotHttpServer(PORT, loggingHandler);
+    }
+
+    /** Catalog mirroring what the real robot publishes, including an overloaded command. */
+    private static List<Descriptor> sampleCommands() {
+        return Arrays.asList(
+                new Descriptor(
+                        "shoot",
+                        Arrays.asList("count", "power"),
+                        Arrays.asList("int", "double"),
+                        Arrays.asList(null, "0.8"),
+                        Arrays.asList(
+                                Collections.singletonList("int"),
+                                Arrays.asList("int", "double"))),
+                new Descriptor(
+                        "intaker.intakerIn",
+                        Collections.singletonList("power"),
+                        Collections.singletonList("double"),
+                        Arrays.asList(
+                                Collections.<String>emptyList(),
+                                Collections.singletonList("double"))),
+                new Descriptor(
+                        "intaker.intakerArmStop",
+                        Collections.<String>emptyList(),
+                        Collections.<String>emptyList()));
     }
 
     public void start() throws IOException {

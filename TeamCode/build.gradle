@@ -32,6 +32,7 @@ dependencies {
     implementation project(':FtcRobotController')
     implementation project(':Shared')
     annotationProcessor project(':schedule-processor')
+    testAnnotationProcessor project(':schedule-processor')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
 }

@@ -42,7 +42,7 @@ public final class FtcOpModeBridge
         RegisteredOpModes.getInstance().waitOpModesRegistered();
         List<OpModeLifecycleService.Descriptor> result = new ArrayList<>();
         for (OpModeMeta meta : RegisteredOpModes.getInstance().getOpModes()) {
-            if (meta.flavor == OpModeMeta.Flavor.AUTONOMOUS) {
+            if (isControllable(meta)) {
                 result.add(new OpModeLifecycleService.Descriptor(meta.name, meta.group));
             }
         }
@@ -57,10 +57,10 @@ public final class FtcOpModeBridge
             String name,
             OpModeLifecycleService.Snapshot snapshot) {
         OpModeMeta meta = metadata(name);
-        if (meta == null || meta.flavor != OpModeMeta.Flavor.AUTONOMOUS) {
+        if (!isControllable(meta)) {
             return OpModeLifecycleService.BackendResult.rejected(
                     "opmode_not_found",
-                    "No registered Autonomous OpMode named " + name);
+                    "No registered Autonomous or TeleOp OpMode named " + name);
         }
 
         if (snapshot.phase == OpModeLifecycleService.Phase.INIT
@@ -86,10 +86,10 @@ public final class FtcOpModeBridge
             String name,
             OpModeLifecycleService.Snapshot snapshot) {
         OpModeMeta meta = metadata(name);
-        if (meta == null || meta.flavor != OpModeMeta.Flavor.AUTONOMOUS) {
+        if (!isControllable(meta)) {
             return OpModeLifecycleService.BackendResult.rejected(
                     "opmode_not_found",
-                    "No registered Autonomous OpMode named " + name);
+                    "No registered Autonomous or TeleOp OpMode named " + name);
         }
         if (snapshot.phase != OpModeLifecycleService.Phase.INIT
                 || !same(name, snapshot.activeName)
@@ -111,10 +111,10 @@ public final class FtcOpModeBridge
             return OpModeLifecycleService.BackendResult.accepted();
         }
         OpModeMeta meta = metadata(name);
-        if (meta == null || meta.flavor != OpModeMeta.Flavor.AUTONOMOUS) {
+        if (!isControllable(meta)) {
             return OpModeLifecycleService.BackendResult.rejected(
                     "opmode_not_found",
-                    "No registered Autonomous OpMode named " + name);
+                    "No registered Autonomous or TeleOp OpMode named " + name);
         }
         if (!same(name, snapshot.activeName) || !same(name, manager.getActiveOpModeName())) {
             return OpModeLifecycleService.BackendResult.rejected(
@@ -163,6 +163,17 @@ public final class FtcOpModeBridge
     private static OpModeMeta metadata(String name) {
         if (name == null || name.trim().isEmpty()) return null;
         return RegisteredOpModes.getInstance().getOpModeMetadata(name);
+    }
+
+    /**
+     * The network surface may select Autonomous and TeleOp OpModes. How a client labels
+     * them is the client's concern; {@code listAutonomous} keeps its name for the
+     * existing {@link OpModeLifecycleService.Backend} contract.
+     */
+    private static boolean isControllable(OpModeMeta meta) {
+        return meta != null
+                && (meta.flavor == OpModeMeta.Flavor.AUTONOMOUS
+                || meta.flavor == OpModeMeta.Flavor.TELEOP);
     }
 
     private static boolean isDefaultName(String name) {
