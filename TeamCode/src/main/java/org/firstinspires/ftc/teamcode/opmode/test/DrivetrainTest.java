@@ -40,8 +40,8 @@ public class DrivetrainTest extends RobotLinearOpMode {
             robot.odo.resetPosAndIMU();
 
             waitForStart();
-
             runWhileActive(() -> {
+
                 robot.odo.update();
 
                 double axial = -gamepad1.left_stick_y;
