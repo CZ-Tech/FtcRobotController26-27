@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode.common.subsystem;
 
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
@@ -16,6 +17,7 @@ public class Intaker implements ScheduleLifecycle {
                 "Intaker motor is missing: " + Globals.intaker);
 
         this.setArmPower(0);
+        intakerItself.setDirection(DcMotorSimple.Direction.REVERSE);
     }
 
     private Intaker setArmPower(double power){
