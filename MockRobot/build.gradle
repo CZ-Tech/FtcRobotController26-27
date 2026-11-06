@@ -17,11 +17,17 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
 }
 
+// Refresh the HTTPS certificate before launching the simulator (never fails the build).
+tasks.matching { it.name == 'run' }.configureEach {
+    dependsOn(rootProject.tasks.named('fetchCert'))
+}
+
 compose.desktop {
     application {
         mainClass = 'org.firstinspires.ftc.mockrobot.MockRobotMainKt'
         jvmArgs(
             '-Dfile.encoding=UTF-8',
+            '-Dmockrobot.tls.dir=' + rootProject.file('.cert-cache').absolutePath,
             '--enable-native-access=ALL-UNNAMED'
         )
     }

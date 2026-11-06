@@ -28,6 +28,55 @@ android {
     }
 }
 
+// ---- HTTPS certificate -> APK assets (ftc_cert/fullchain.pem, ftc_cert/privkey.pem) ----------
+// :fetchCert (root project, scripts/fetch-cert.gradle) refreshes <root>/.cert-cache on every
+// build. It never fails; if there is no certificate at all nothing is bundled and the robot
+// starts with HTTP only.
+abstract class StageCertAssets extends DefaultTask {
+    @Internal
+    abstract DirectoryProperty getCertCache()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void stage() {
+        File target = new File(outputDir.get().asFile, 'ftc_cert')
+        target.deleteDir()
+        File chain = new File(certCache.get().asFile, 'fullchain.pem')
+        File key = new File(certCache.get().asFile, 'privkey.pem')
+        if (chain.isFile() && key.isFile()) {
+            target.mkdirs()
+            java.nio.file.Files.copy(chain.toPath(), new File(target, 'fullchain.pem').toPath())
+            java.nio.file.Files.copy(key.toPath(), new File(target, 'privkey.pem').toPath())
+        } else {
+            logger.warn('[stageCertAssets] no certificate in .cert-cache; APK will have no HTTPS certificate')
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def stage = tasks.register("stageCertAssets${variant.name.capitalize()}", StageCertAssets) {
+            dependsOn(rootProject.tasks.named('fetchCert'))
+            certCache.set(rootProject.layout.projectDirectory.dir('.cert-cache'))
+            outputs.upToDateWhen { false }
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(stage) { task -> task.outputDir }
+    }
+}
+
+// After installing the APK on a Control Hub, make the cert's domain resolve to the hub on its
+// hotspot (scripts/hub-dns.gradle). Never fails the build; skips non-Control-Hub devices.
+tasks.matching { it.name == 'installDebug' || it.name == 'installRelease' }.configureEach {
+    finalizedBy(rootProject.tasks.named('configureHubDns'))
+    doFirst {
+        // Lets configureHubDns pick out exactly the devices that received this APK.
+        rootProject.ext.set('hubDnsInstallStart', System.currentTimeMillis())
+        rootProject.ext.set('hubDnsAppId', android.defaultConfig.applicationId)
+    }
+}
+
 dependencies {
     implementation project(':FtcRobotController')
     implementation project(':Shared')

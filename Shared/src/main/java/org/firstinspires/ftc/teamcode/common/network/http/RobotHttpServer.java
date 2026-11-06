@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.SSLContext;
+
 /**
  * Small concurrent HTTP/1.1 server for the robot controller.
  *
@@ -32,6 +34,11 @@ public final class RobotHttpServer {
     private volatile ServerSocket serverSocket;
     private volatile Thread acceptThread;
 
+    private SSLContext tlsContext;
+    private int tlsPort;
+    private volatile ServerSocket tlsSocket;
+    private volatile Thread tlsAcceptThread;
+
     public RobotHttpServer(int port, HttpHandler handler) {
         this(port, handler, 8);
     }
@@ -44,6 +51,18 @@ public final class RobotHttpServer {
         this.workers = Executors.newFixedThreadPool(maxWorkers, new NetworkThreadFactory());
     }
 
+    /**
+     * Additionally serves the same handler over TLS on {@code httpsPort}. Must be called before
+     * {@link #start()}. The plain HTTP listener is unaffected; if the TLS port cannot be
+     * bound, {@link #start()} logs the failure and keeps serving HTTP.
+     */
+    public synchronized void enableTls(int httpsPort, SSLContext context) {
+        if (running.get()) throw new IllegalStateException("server already started");
+        if (context == null) throw new IllegalArgumentException("context == null");
+        this.tlsPort = httpsPort;
+        this.tlsContext = context;
+    }
+
     public synchronized void start() throws IOException {
         if (running.get()) return;
         ServerSocket socket = new ServerSocket(port);
@@ -51,22 +70,29 @@ public final class RobotHttpServer {
         serverSocket = socket;
         running.set(true);
 
-        acceptThread = new Thread(this::acceptLoop, "AzHttp-Acceptor");
-        acceptThread.setDaemon(true);
-        acceptThread.setPriority(Thread.MIN_PRIORITY);
-        acceptThread.start();
+        acceptThread = startAcceptor(socket, "AzHttp-Acceptor");
         LOGGER.info("Listening on port " + port);
+
+        if (tlsContext != null) {
+            try {
+                ServerSocket secure = tlsContext.getServerSocketFactory().createServerSocket(tlsPort);
+                secure.setReuseAddress(true);
+                tlsSocket = secure;
+                tlsAcceptThread = startAcceptor(secure, "AzHttps-Acceptor");
+                LOGGER.info("Listening (TLS) on port " + secure.getLocalPort());
+            } catch (IOException | RuntimeException e) {
+                LOGGER.log(Level.SEVERE, "HTTPS listener failed to start on port " + tlsPort
+                        + "; continuing with HTTP only", e);
+            }
+        }
     }
 
     public synchronized void stop() {
         if (!running.getAndSet(false)) return;
-        ServerSocket socket = serverSocket;
+        closeQuietly(serverSocket);
         serverSocket = null;
-        if (socket != null) {
-            try {
-                socket.close();
-            } catch (IOException ignored) {}
-        }
+        closeQuietly(tlsSocket);
+        tlsSocket = null;
         workers.shutdownNow();
     }
 
@@ -74,10 +100,31 @@ public final class RobotHttpServer {
         return running.get();
     }
 
-    private void acceptLoop() {
+    /** Actual HTTPS port once started (useful when 0 was requested), or -1 when TLS is off. */
+    public int tlsPort() {
+        ServerSocket secure = tlsSocket;
+        return secure == null ? -1 : secure.getLocalPort();
+    }
+
+    private Thread startAcceptor(ServerSocket socket, String name) {
+        Thread thread = new Thread(() -> acceptLoop(socket), name);
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        thread.start();
+        return thread;
+    }
+
+    private static void closeQuietly(ServerSocket socket) {
+        if (socket == null) return;
+        try {
+            socket.close();
+        } catch (IOException ignored) {}
+    }
+
+    private void acceptLoop(ServerSocket listener) {
         while (running.get()) {
             try {
-                Socket socket = serverSocket.accept();
+                Socket socket = listener.accept();
                 socket.setTcpNoDelay(true);
                 socket.setSoTimeout(5000);
                 workers.execute(() -> handleConnection(socket));

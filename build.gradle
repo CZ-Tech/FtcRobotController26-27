@@ -17,6 +17,11 @@ plugins {
     id 'com.android.library' version '8.13.2' apply false
 }
 
+// HTTPS certificate download (cert.jwt -> .cert-cache); never fails the build.
+apply from: 'scripts/fetch-cert.gradle'
+// Maps the certificate domain to the hub (192.168.43.1) via its hosts file after install.
+apply from: 'scripts/hub-dns.gradle'
+
 // This is now required because aapt2 has to be downloaded from the
 // google() repository beginning with version 3.2 of the Android Gradle Plugin
 allprojects {

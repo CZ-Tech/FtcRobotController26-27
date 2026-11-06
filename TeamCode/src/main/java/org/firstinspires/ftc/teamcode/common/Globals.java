@@ -31,8 +31,8 @@ public class Globals {
     public static String odoName = "odo"; // ci2c0
 
     // 机构
-    public static String leftShooter = "ls";  // eh 2
-    public static String rightShooter = "rs"; // eh 3
+    public static String Shooter = "shooter";  // eh 2
+    //public static String rightShooter = "rs"; // eh 3
     public static String leftArm = "ila";
     public static String rightArm = "ira";
     public static String intaker = "intaker"; // eh 0

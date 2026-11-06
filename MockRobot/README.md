@@ -16,6 +16,15 @@ For network-only testing without the GUI:
 
     gradlew.bat :MockRobot:run --args="--headless"
 
+## HTTPS
+
+HTTP (8888) always runs. If a certificate is available, the same API is also served over
+HTTPS on port 8889. `gradlew :MockRobot:run` first runs `:fetchCert` (see
+`scripts/fetch-cert.gradle`), which downloads the certificate described by `cert.jwt` into
+`.cert-cache/`. Without a certificate the simulator logs it and serves HTTP only.
+Outside Gradle, put `fullchain.pem` and `privkey.pem` in `~/.azconductor/mockrobot/tls/`
+or pass `-Dmockrobot.tls.dir=<dir>`.
+
 ## What it simulates
 
 - Network V2 health/session ownership.

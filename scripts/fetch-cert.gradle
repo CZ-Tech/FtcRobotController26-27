@@ -1,0 +1,223 @@
+/**
+ * fetchCert -- downloads the TLS certificate that the robot serves over HTTPS.
+ *
+ * Applied from the root build.gradle. The task is wired into every APK build (TeamCode) and into
+ * MockRobot:run, so the certificate is refreshed every time the APK is built/installed.
+ *
+ * Input : <repo>/cert.jwt   (override with env FTC_CERT_JWT_FILE). Not committed to Git.
+ *         A JWT whose payload is
+ *           { "token": "<token>",
+ *             "request": "GET /v1/bundle.json HTTP/1.1\nHost: <host>\nAuthorization: Bearer <token>" }
+ *         The "request" text is replayed over HTTPS against its Host header, exactly as written.
+ *         Signature is verified only if a public key file exists (<repo>/cert.jwt.pub, override
+ *         with env FTC_CERT_JWT_PUBKEY_FILE); without one verification is skipped.
+ * Reply : { "domain", "not_after", "days_left", "fingerprint_sha256", "fullchain", "privkey" }
+ * Output: <repo>/.cert-cache/fullchain.pem, privkey.pem, info.json  (not committed to Git)
+ *
+ * This task NEVER fails the build. On any problem it logs an ERROR (or a WARNING when it falls
+ * back to the previously cached certificate) and carries on; the robot then simply starts
+ * without HTTPS (or with the cached certificate).
+ */
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
+import java.util.Arrays
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+def certJwtFile = rootProject.file(System.getenv('FTC_CERT_JWT_FILE') ?: 'cert.jwt')
+def certCacheDir = rootProject.file('.cert-cache')
+
+// ---- helpers -------------------------------------------------------------------------------
+
+def decodeJwtPayload = { String jwt ->
+    String[] parts = jwt.trim().split('\\.')
+    if (parts.length < 2 || parts[1].isEmpty()) {
+        throw new IllegalArgumentException('cert.jwt is not a JWT (expected header.payload.signature)')
+    }
+    String payload = parts[1]
+    payload += '=' * ((4 - payload.length() % 4) % 4)
+    Object json = new JsonSlurper().parse(Base64.urlDecoder.decode(payload))
+    if (!(json instanceof Map)) throw new IllegalArgumentException('JWT payload is not a JSON object')
+    return json as Map
+}
+
+// Optional signature check. Only done when a public key file exists (cert.jwt.pub, override with
+// env FTC_CERT_JWT_PUBKEY_FILE; PEM "PUBLIC KEY" or "CERTIFICATE"); without one the JWT is trusted
+// as-is and its request is executed verbatim. Supported: RS256/384/512, ES256/384/512.
+def verifyJwtSignatureIfKeyPresent = { String jwt ->
+    File keyFile = rootProject.file(System.getenv('FTC_CERT_JWT_PUBKEY_FILE') ?: 'cert.jwt.pub')
+    if (!keyFile.isFile()) {
+        logger.lifecycle("[fetchCert] no public key at ${keyFile.name}: JWT signature verification skipped")
+        return
+    }
+    String[] parts = jwt.trim().split('\\.')
+    if (parts.length != 3) throw new SecurityException('JWT has no signature part but a public key is configured')
+    Map header = new JsonSlurper().parse(Base64.urlDecoder.decode(parts[0] + '=' * ((4 - parts[0].length() % 4) % 4))) as Map
+    String alg = header.alg
+    def algorithms = [RS256: 'SHA256withRSA', RS384: 'SHA384withRSA', RS512: 'SHA512withRSA',
+                      ES256: 'SHA256withECDSA', ES384: 'SHA384withECDSA', ES512: 'SHA512withECDSA']
+    if (!algorithms.containsKey(alg)) {
+        throw new SecurityException("JWT alg '${alg}' cannot be verified with a public key")
+    }
+
+    String pem = keyFile.getText('UTF-8')
+    def body = { String label ->
+        def m = pem =~ /(?s)-----BEGIN ${label}-----(.*?)-----END ${label}-----/
+        return m.find() ? Base64.mimeDecoder.decode(m.group(1)) : null
+    }
+    java.security.PublicKey publicKey
+    byte[] spki = body('PUBLIC KEY')
+    byte[] cert = spki == null ? body('CERTIFICATE') : null
+    if (spki != null) {
+        publicKey = java.security.KeyFactory.getInstance(alg.startsWith('RS') ? 'RSA' : 'EC')
+                .generatePublic(new java.security.spec.X509EncodedKeySpec(spki))
+    } else if (cert != null) {
+        publicKey = java.security.cert.CertificateFactory.getInstance('X.509')
+                .generateCertificate(new ByteArrayInputStream(cert)).publicKey
+    } else {
+        throw new IllegalArgumentException("${keyFile.name} has no PUBLIC KEY or CERTIFICATE block")
+    }
+
+    byte[] signature = Base64.urlDecoder.decode(parts[2] + '=' * ((4 - parts[2].length() % 4) % 4))
+    if (alg.startsWith('ES')) {
+        // JWS uses raw R||S; Java wants DER.
+        int half = signature.length.intdiv(2)
+        def r = new BigInteger(1, Arrays.copyOfRange(signature, 0, half)).toByteArray()
+        def s = new BigInteger(1, Arrays.copyOfRange(signature, half, signature.length)).toByteArray()
+        def seq = new ByteArrayOutputStream()
+        seq.write(0x02); seq.write(r.length); seq.write(r, 0, r.length)
+        seq.write(0x02); seq.write(s.length); seq.write(s, 0, s.length)
+        def der = new ByteArrayOutputStream()
+        der.write(0x30)
+        if (seq.size() >= 0x80) der.write(0x81)
+        der.write(seq.size())
+        der.write(seq.toByteArray(), 0, seq.size())
+        signature = der.toByteArray()
+    }
+    java.security.Signature verifier = java.security.Signature.getInstance(algorithms[alg])
+    verifier.initVerify(publicKey)
+    verifier.update("${parts[0]}.${parts[1]}".getBytes(StandardCharsets.US_ASCII))
+    if (!verifier.verify(signature)) throw new SecurityException('JWT signature verification FAILED')
+    logger.lifecycle("[fetchCert] JWT signature verified (${alg})")
+}
+
+// Parses "GET /path HTTP/1.1\nHost: x\nAuthorization: Bearer y" into [method, path, headers].
+def parseRequestText = { String text ->
+    List<String> lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n', -1) as List<String>
+    String requestLine = lines.isEmpty() ? '' : lines[0].trim()
+    String[] pieces = requestLine.split('\\s+')
+    if (pieces.length < 2 || !pieces[1].startsWith('/')) {
+        throw new IllegalArgumentException("malformed request line in JWT: '${requestLine}'")
+    }
+    Map<String, String> headers = [:]
+    for (int i = 1; i < lines.size(); i++) {
+        String line = lines[i]
+        if (line.trim().isEmpty()) break
+        int colon = line.indexOf(':')
+        if (colon <= 0) throw new IllegalArgumentException("malformed header in JWT request: '${line}'")
+        headers[line.substring(0, colon).trim()] = line.substring(colon + 1).trim()
+    }
+    String host = headers.find { it.key.equalsIgnoreCase('host') }?.value
+    if (!host) throw new IllegalArgumentException('JWT request has no Host header')
+    return [method: pieces[0].toUpperCase(Locale.ROOT), path: pieces[1], host: host, headers: headers]
+}
+
+def httpFetch = { Map req ->
+    URL url = new URL("https://${req.host}${req.path}")
+    HttpURLConnection connection = (HttpURLConnection) url.openConnection()
+    connection.requestMethod = req.method
+    connection.connectTimeout = 15000
+    connection.readTimeout = 30000
+    connection.setRequestProperty('Accept', 'application/json')
+    req.headers.each { name, value ->
+        // Host is derived from the URL; the rest of the request headers are replayed as-is.
+        if (!name.equalsIgnoreCase('host') && !name.equalsIgnoreCase('content-length')
+                && !name.equalsIgnoreCase('connection')) {
+            connection.setRequestProperty(name, value)
+        }
+    }
+    int status = connection.responseCode
+    InputStream stream = status >= 400 ? connection.errorStream : connection.inputStream
+    String body = stream == null ? '' : new String(stream.readAllBytes(), StandardCharsets.UTF_8)
+    return [status: status, body: body]
+}
+
+def writeAtomically = { File target, String content ->
+    File temp = new File(target.parentFile, target.name + '.tmp')
+    temp.setText(content, 'UTF-8')
+    Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+}
+
+def fetchAndStore = {
+    if (!certJwtFile.isFile()) {
+        throw new FileNotFoundException("JWT file not found: ${certJwtFile}")
+    }
+    String jwtText = certJwtFile.getText('UTF-8')
+    verifyJwtSignatureIfKeyPresent(jwtText)
+    Map payload = decodeJwtPayload(jwtText)
+    if (!payload.request) throw new IllegalArgumentException('JWT payload has no "request"')
+    Map req = parseRequestText(payload.request.toString())
+
+    logger.lifecycle("[fetchCert] ${req.method} https://${req.host}${req.path}")
+    Map reply = httpFetch(req)
+    if (reply.status != 200) {
+        String snippet = reply.body.length() > 300 ? reply.body.substring(0, 300) + '...' : reply.body
+        throw new IOException("server answered HTTP ${reply.status}: ${snippet}")
+    }
+
+    Object parsed = new JsonSlurper().parseText(reply.body)
+    if (!(parsed instanceof Map)) throw new IOException('bundle is not a JSON object')
+    Map bundle = parsed as Map
+    String fullchain = bundle.fullchain
+    String privkey = bundle.privkey
+    if (!fullchain?.contains('-----BEGIN CERTIFICATE-----')) {
+        throw new IOException('bundle.fullchain missing or not PEM')
+    }
+    if (!privkey?.contains('PRIVATE KEY-----')) {
+        throw new IOException('bundle.privkey missing or not PEM')
+    }
+
+    certCacheDir.mkdirs()
+    writeAtomically(new File(certCacheDir, 'fullchain.pem'), fullchain)
+    writeAtomically(new File(certCacheDir, 'privkey.pem'), privkey)
+    // Metadata only; the private key is deliberately kept out of this file.
+    Map info = bundle.findAll { k, v -> k != 'fullchain' && k != 'privkey' }
+    info.fetchedAt = System.currentTimeMillis()
+    writeAtomically(new File(certCacheDir, 'info.json'), JsonOutput.prettyPrint(JsonOutput.toJson(info)))
+
+    logger.lifecycle("[fetchCert] OK domain=${bundle.domain} daysLeft=${bundle.days_left} " +
+            "sha256=${bundle.fingerprint_sha256}")
+    if (bundle.not_after instanceof Number && ((Number) bundle.not_after).longValue() * 1000L < System.currentTimeMillis()) {
+        logger.warn('[fetchCert] WARNING: the certificate returned by the server is already expired')
+    }
+}
+
+// ---- task ----------------------------------------------------------------------------------
+
+tasks.register('fetchCert') {
+    group = 'build'
+    description = 'Downloads the HTTPS certificate described by cert.jwt into .cert-cache (never fails the build).'
+    // Always refresh: the point is to pick up a renewed certificate on every deployment.
+    outputs.upToDateWhen { false }
+
+    doLast {
+        try {
+            fetchAndStore()
+        } catch (Throwable t) {
+            boolean cached = new File(certCacheDir, 'fullchain.pem').isFile() &&
+                    new File(certCacheDir, 'privkey.pem').isFile()
+            logger.error("[fetchCert] ERROR: could not obtain the HTTPS certificate: " +
+                    "${t.class.simpleName}: ${t.message}")
+            if (cached) {
+                logger.warn("[fetchCert] Falling back to the previously cached certificate in ${certCacheDir}")
+            } else {
+                logger.error('[fetchCert] No cached certificate either: the build continues, ' +
+                        'the robot will serve HTTP only.')
+            }
+        }
+    }
+}

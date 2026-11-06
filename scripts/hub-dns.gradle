@@ -1,0 +1,242 @@
+/**
+ * configureHubDns -- makes devices on the Control Hub's Wi-Fi hotspot resolve the certificate's
+ * domain name to the hub itself (192.168.43.1), so https://<domain>:8889 works there.
+ *
+ * How: the hotspot's DNS server is the stock Android dnsmasq started by netd. It is not started
+ * with --no-hosts, so it answers names listed in /system/etc/hosts. The Control Hub OS is a
+ * userdebug build, so `adb root` + `adb remount` can edit that file.
+ * (Derived from analysing Control Hub OS 1.1.6; verify on your own hub.)
+ *
+ * Runs automatically after :TeamCode:installDebug / installRelease (wired in TeamCode/build.gradle)
+ * and can be run by hand: gradlew configureHubDns
+ *
+ * Safety:
+ *  - NEVER fails the build; problems are logged as ERROR/WARN.
+ *  - Does not scan connected devices for work: it only acts on the device(s) the project's APK was
+ *    just installed on (or an explicit -Pftc.hubdns.serial / ANDROID_SERIAL).
+ *  - Of those, only touches a device whose build fingerprint matches -Pftc.hubdns.fingerprint
+ *    (default "ch_v1_box", i.e. REV Control Hub). Phones/emulators are left alone.
+ *  - Idempotent: if the hosts file already maps the name, nothing is changed (no root, no remount).
+ *
+ * Settings (gradle -P or env):
+ *  ftc.hubdns.host        / FTC_HUB_DNS_HOST        domain; default: "domain" from .cert-cache/info.json
+ *  ftc.hubdns.ip          / FTC_HUB_DNS_IP          default 192.168.43.1
+ *  ftc.hubdns.fingerprint                           regex on ro.build.fingerprint, default ch_v1_box
+ *  ftc.hubdns.hostsPath                             default /system/etc/hosts
+ *  ftc.hubdns.disable=true / FTC_HUB_DNS_DISABLE=1  skip entirely
+ */
+import groovy.json.JsonSlurper
+
+import java.util.concurrent.TimeUnit
+
+def hubDnsSetting = { String prop, String env, String fallback ->
+    String value = rootProject.findProperty(prop)?.toString() ?: (env ? System.getenv(env) : null)
+    return value ? value : fallback
+}
+
+def locateAdb = {
+    List<File> candidates = []
+    File localProps = rootProject.file('local.properties')
+    if (localProps.isFile()) {
+        Properties p = new Properties()
+        localProps.withInputStream { p.load(it) }
+        if (p.getProperty('sdk.dir')) candidates << new File(p.getProperty('sdk.dir'), 'platform-tools')
+    }
+    ['ANDROID_HOME', 'ANDROID_SDK_ROOT'].each { name ->
+        if (System.getenv(name)) candidates << new File(System.getenv(name), 'platform-tools')
+    }
+    // Default Android Studio SDK locations (Windows / Linux / macOS).
+    if (System.getenv('LOCALAPPDATA')) candidates << new File(System.getenv('LOCALAPPDATA'), 'Android/Sdk/platform-tools')
+    String home = System.getProperty('user.home')
+    candidates << new File(home, 'Android/Sdk/platform-tools')
+    candidates << new File(home, 'Library/Android/sdk/platform-tools')
+    (System.getenv('PATH') ?: '').split(File.pathSeparator).each { if (it) candidates << new File(it) }
+    for (File dir : candidates) {
+        for (String name : ['adb.exe', 'adb']) {
+            File f = new File(dir, name)
+            if (f.isFile()) return f.absolutePath
+        }
+    }
+    return null
+}
+
+// Runs a command, returns [code, out] (stdout+stderr merged). code -1 = timeout/failure to start.
+def runCommand = { List<String> command, long timeoutSec ->
+    try {
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start()
+        StringBuffer sink = new StringBuffer()
+        Thread reader = Thread.start {
+            process.inputStream.eachLine('UTF-8') { sink.append(it).append('\n') }
+        }
+        if (!process.waitFor(timeoutSec, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            return [code: -1, out: sink.toString() + '(timed out)']
+        }
+        reader.join(2000)
+        return [code: process.exitValue(), out: sink.toString().trim()]
+    } catch (Throwable t) {
+        return [code: -1, out: "${t.class.simpleName}: ${t.message}"]
+    }
+}
+
+tasks.register('configureHubDns') {
+    group = 'install'
+    description = 'Maps the certificate domain to 192.168.43.1 in a connected Control Hub\'s hosts file (never fails the build).'
+    outputs.upToDateWhen { false }
+
+    doLast {
+        try {
+            if (rootProject.findProperty('ftc.hubdns.disable')?.toString() == 'true' || System.getenv('FTC_HUB_DNS_DISABLE') == '1') {
+                logger.lifecycle('[hubDns] disabled by setting')
+                return
+            }
+
+            String domain = hubDnsSetting('ftc.hubdns.host', 'FTC_HUB_DNS_HOST', null)
+            if (!domain) {
+                File info = rootProject.file('.cert-cache/info.json')
+                if (info.isFile()) domain = (new JsonSlurper().parse(info) as Map).domain
+            }
+            if (!domain || !(domain ==~ /[A-Za-z0-9.\-]+/)) {
+                logger.warn('[hubDns] no (valid) domain known (no .cert-cache/info.json); skipping')
+                return
+            }
+            String ip = hubDnsSetting('ftc.hubdns.ip', 'FTC_HUB_DNS_IP', '192.168.43.1')
+            String fingerprintRegex = hubDnsSetting('ftc.hubdns.fingerprint', null, 'ch_v1_box')
+            String hostsPath = hubDnsSetting('ftc.hubdns.hostsPath', null, '/system/etc/hosts')
+
+            String adb = locateAdb()
+            if (!adb) {
+                logger.warn('[hubDns] adb not found; skipping')
+                return
+            }
+
+            // Which device(s)? Only the ones this project's APK was just installed on:
+            //  1. an explicit serial (-Pftc.hubdns.serial / ANDROID_SERIAL -- the latter is also what
+            //     makes AGP install to a single device), or
+            //  2. after installDebug/installRelease: devices on which the project's applicationId
+            //     was updated since the install task started (compared on the device's own clock).
+            // With neither, nothing is touched.
+            String explicitSerial = hubDnsSetting('ftc.hubdns.serial', 'ANDROID_SERIAL', null)
+            Long installStart = rootProject.ext.has('hubDnsInstallStart') ? (Long) rootProject.ext.get('hubDnsInstallStart') : null
+            String appId = rootProject.ext.has('hubDnsAppId') ? rootProject.ext.get('hubDnsAppId').toString() : 'com.qualcomm.ftcrobotcontroller'
+
+            List<String> serials
+            if (explicitSerial) {
+                serials = [explicitSerial]
+            } else if (installStart != null) {
+                def listing = runCommand([adb, 'devices'], 30)
+                List<String> online = listing.out.readLines().drop(1)
+                        .findAll { it.trim().endsWith('device') }
+                        .collect { it.split('\\s+')[0] }
+                java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat('yyyy-MM-dd HH:mm:ss')
+                fmt.timeZone = TimeZone.getTimeZone('UTC')
+                serials = online.findAll { String s ->
+                    // Both timestamps are device-local, so only their difference is used.
+                    def dump = runCommand([adb, '-s', s, 'shell', "dumpsys package ${appId}".toString()], 30)
+                    def upd = dump.out =~ /lastUpdateTime=(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/
+                    def now = runCommand([adb, '-s', s, 'shell', "date '+%Y-%m-%d %H:%M:%S'"], 15).out.trim()
+                    if (!upd.find() || !(now ==~ /\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/)) {
+                        logger.info("[hubDns] ${s}: cannot read install time (dumpsys code ${dump.code}, ${dump.out.take(300)}; device date '${now}')")
+                        return false
+                    }
+                    long sinceUpdateSec = (fmt.parse(now).time - fmt.parse(upd.group(1)).time).intdiv(1000)
+                    long sinceInstallStartSec = (System.currentTimeMillis() - installStart).intdiv(1000)
+                    logger.info("[hubDns] ${s}: ${appId} updated ${sinceUpdateSec}s ago on device, install task started ${sinceInstallStartSec}s ago")
+                    return sinceUpdateSec >= -5 && sinceUpdateSec <= sinceInstallStartSec + 15
+                }
+                logger.lifecycle("[hubDns] ${appId} was installed in this run on: ${serials ?: 'no device'}")
+            } else {
+                logger.lifecycle('[hubDns] no install in this run and no device given ' +
+                        '(-Pftc.hubdns.serial=<adb serial> or ANDROID_SERIAL); nothing to do')
+                return
+            }
+            if (serials.isEmpty()) return
+
+            boolean touched = false
+            serials.each { String serial ->
+                def adbSh = { String cmd, long t = 30 -> runCommand([adb, '-s', serial, 'shell', cmd], t) }
+                String fingerprint = adbSh('getprop ro.build.fingerprint').out
+                if (!(fingerprint =~ fingerprintRegex)) {
+                    logger.lifecycle("[hubDns] ${serial}: not a Control Hub (${fingerprint}); left alone")
+                    return
+                }
+                touched = true
+                logger.lifecycle("[hubDns] ${serial}: Control Hub detected, want '${ip} ${domain}' in ${hostsPath}")
+
+                def alreadyMapped = { String text ->
+                    text.readLines().any { line ->
+                        String body = line.replaceAll('#.*', '').trim()
+                        if (body.isEmpty()) return false
+                        List<String> tokens = body.split('\\s+') as List<String>
+                        return tokens[0] == ip && tokens.drop(1).contains(domain)
+                    }
+                }
+
+                String current = adbSh("cat ${hostsPath}").out
+                if (alreadyMapped(current)) {
+                    logger.lifecycle("[hubDns] ${serial}: already configured; nothing to change")
+                    return
+                }
+
+                boolean systemFile = hostsPath.startsWith('/system')
+                if (systemFile) {
+                    def root = runCommand([adb, '-s', serial, 'root'], 30)
+                    logger.lifecycle("[hubDns] ${serial}: adb root -> ${root.out.replace('\n', ' ')}")
+                    if (serial.contains(':')) {
+                        // TCP device: adbd restarted, the connection must be re-established.
+                        Thread.sleep(2500)
+                        runCommand([adb, 'connect', serial], 15)
+                    }
+                    def waited = runCommand([adb, '-s', serial, 'wait-for-device'], 60)
+                    if (waited.code != 0) throw new IOException("device did not come back after adb root: ${waited.out}")
+
+                    def remount = runCommand([adb, '-s', serial, 'remount'], 60)
+                    logger.lifecycle("[hubDns] ${serial}: adb remount -> ${remount.out.replace('\n', ' ')}")
+                    if (!(remount.out =~ /(?i)succeeded/)) {
+                        def fallback = adbSh('mount -o remount,rw /system')
+                        logger.lifecycle("[hubDns] ${serial}: mount -o remount,rw -> code ${fallback.code} ${fallback.out}")
+                    }
+                    current = adbSh("cat ${hostsPath}").out
+                }
+
+                // Rebuild the file: drop any old mapping of this domain, then append ours.
+                List<String> kept = current.readLines().findAll { line ->
+                    String body = line.replaceAll('#.*', '').trim()
+                    if (body.isEmpty()) return true
+                    return !(body.split('\\s+') as List<String>).drop(1).contains(domain)
+                }
+                kept << "${ip}\t${domain}\t# managed by configureHubDns".toString()
+                File temp = File.createTempFile('hosts', '.txt')
+                try {
+                    temp.setText(kept.join('\n') + '\n', 'UTF-8')
+                    def push = runCommand([adb, '-s', serial, 'push', temp.absolutePath, hostsPath], 30)
+                    if (push.code != 0) throw new IOException("adb push failed: ${push.out}")
+                } finally {
+                    temp.delete()
+                }
+                adbSh("chmod 644 ${hostsPath}")
+                adbSh("restorecon ${hostsPath}")
+
+                String after = adbSh("cat ${hostsPath}").out
+                if (!alreadyMapped(after)) throw new IOException("verification failed, ${hostsPath} now reads: ${after}")
+                logger.lifecycle("[hubDns] ${serial}: ${hostsPath} updated")
+
+                if (systemFile) adbSh('mount -o remount,ro /system')
+                // SIGHUP makes dnsmasq drop its cache and re-read the hosts file.
+                String pids = adbSh('pidof dnsmasq').out.trim()
+                if (pids ==~ /\d+( \d+)*/) {
+                    def hup = adbSh("kill -HUP ${pids}")
+                    logger.lifecycle("[hubDns] ${serial}: SIGHUP to dnsmasq (pid ${pids}) -> code ${hup.code} ${hup.out}".trim())
+                } else {
+                    logger.lifecycle("[hubDns] ${serial}: dnsmasq is not running (hotspot off?); it reads the file when it starts")
+                }
+                logger.lifecycle("[hubDns] ${serial}: done. Devices on the hotspot should now resolve ${domain} to ${ip} " +
+                        '(re-join Wi-Fi or flush their DNS cache if they still see the old answer).')
+            }
+            if (!touched) logger.lifecycle('[hubDns] no Control Hub among connected devices')
+        } catch (Throwable t) {
+            logger.error("[hubDns] ERROR: could not configure Control Hub DNS: ${t.class.simpleName}: ${t.message}. " +
+                    'The install itself is not affected.')
+        }
+    }
+}
