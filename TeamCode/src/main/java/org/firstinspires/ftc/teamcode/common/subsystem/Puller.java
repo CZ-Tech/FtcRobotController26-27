@@ -7,14 +7,13 @@ import org.firstinspires.ftc.teamcode.common.Robot;
 
 @GenerateSchedule
 public class Puller implements ScheduleLifecycle{
-    private int pullerState = 0;
+    private int pullerState = 3;
     private boolean isRunning = false;
     static final double COUNTS_PER_MOTOR_REV = 28.0;
     public double r = 0;
     public ServoImplEx leftKickerServo;
     public ServoImplEx rightKickerServo;
-    public static double leftIN = 1656, leftOUT = 2450, rightIN =114514, rightOUT =114514;//right的数字需要更改！
-
+    //setPosition里面需要填写的计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500
     public Puller(@NonNull Robot robot){
         leftKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.leftPullerServo);
         rightKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.rightPullerServo);
@@ -22,18 +21,17 @@ public class Puller implements ScheduleLifecycle{
     }
 
     //放下铲子
-    public void state0(){
-        leftKickerServo.setPosition((leftIN - 500.0) / 2500.0);
-        rightKickerServo.setPosition((leftIN - 500.0) / 2500.0);
+    public void state0(){//最低角度状态，需要设置两个舵机的的数值
+        leftKickerServo.setPosition();
+        rightKickerServo.setPosition();
     }
 
-    public void state1(){}
+    public void state1(){}//中间位置1
     //抬起铲子
-    public void state2(){}
+    public void state2(){}//中间位置2
 
-    public void state3(){
-        leftKickerServo.setPosition((leftOUT - 500.0) / 2500.0);
-        rightKickerServo.setPosition((rightOUT - 500.0) / 2500);
+    public void state3(){//最大位置
+//
     }
 
     public int getPullerState(){

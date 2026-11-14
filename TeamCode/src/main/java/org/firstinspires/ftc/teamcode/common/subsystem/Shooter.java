@@ -23,7 +23,7 @@ public class Shooter implements ScheduleLifecycle{
     private boolean isRunning = false;
     static final double COUNTS_PER_MOTOR_REV = 28.0;
     public double r = 0;
-    public double valveOpenDegree = 1;//这个数据需要更改！
+    public double valveOpenDegree = 1;//这个数据需要更改！具体数据计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500。下一行的同理。分别为挡板打开（发射），与关闭（阻止发射）
     public double valveCloseDgree = 0;//这个数据需要更改！
 
     public Shooter(Robot robot) {

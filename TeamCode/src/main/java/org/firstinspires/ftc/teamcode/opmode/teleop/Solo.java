@@ -41,11 +41,11 @@ public class Solo extends RobotLinearOpMode {
 
 
             waitForStart();
-            runWhileActive(() -> {
-                //shooter保持一直开启
-                robot.subsystem.shooter.setTargetVelocity(1);
+            //shooter保持开启
+            robot.subsystem.shooter.setTargetVelocity();
 
-                //Intake控制
+            runWhileActive(() -> {
+                //Puller与Intake控制
                 int pullerState = robot.subsystem.puller.getPullerState();
                 if (gamepad1.dpad_up && pullerState < 3)
                     pullerState += 1;
@@ -54,13 +54,17 @@ public class Solo extends RobotLinearOpMode {
                 }
                 switch (pullerState){
                     case 0:
-                        //robot.subsystem.puller
+                        robot.subsystem.puller.state0();
                     case 1:
-
+                        robot.subsystem.puller.state1();
                     case 2:
-
+                        robot.subsystem.puller.state2();
                     case 3:
+                        robot.subsystem.puller.state3();
 
+                }
+                if (gamepad1.rightBumperWasPressed()){
+                    robot.subsystem.intaker.intakerIn();
                 }
 
                 //Shooter控制
