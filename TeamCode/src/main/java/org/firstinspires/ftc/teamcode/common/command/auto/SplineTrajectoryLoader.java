@@ -530,20 +530,24 @@ public final class SplineTrajectoryLoader {
                 double maxPower = obj.optDouble("maxPower", 1.0);
                 double maxSpeed = obj.has("maxSpeed") ? obj.getDouble("maxSpeed") : Double.NaN;
                 double endSpeed = obj.has("endSpeed") ? obj.getDouble("endSpeed") : Double.NaN;
-                double brakeZoneIn = obj.optDouble("brakeZoneIn", 0.0);
+                // Missing means automatic braking when endSpeed is set; an explicit
+                // zone retains the original fixed-zone behavior.
+                double brakeZoneIn = obj.has("brakeZoneIn")
+                        ? obj.getDouble("brakeZoneIn") : Double.NaN;
                 double brakeForwardPower = obj.has("brakeForwardPower")
                         ? obj.getDouble("brakeForwardPower") : Double.NaN;
                 if (!Double.isFinite(maxPower) || maxPower < 0 || maxPower > 1
                         || (!Double.isNaN(maxSpeed) && (!Double.isFinite(maxSpeed) || maxSpeed <= 0))
                         || (!Double.isNaN(endSpeed) && (!Double.isFinite(endSpeed) || endSpeed < 0))
-                        || !Double.isFinite(brakeZoneIn) || brakeZoneIn < 0
+                        || (obj.has("brakeZoneIn")
+                            && (!Double.isFinite(brakeZoneIn) || brakeZoneIn < 0))
                         || (!Double.isNaN(brakeForwardPower)
                             && (!Double.isFinite(brakeForwardPower)
                                 || brakeForwardPower < 0 || brakeForwardPower > 1))) {
                     throw new JSONException("invalid power/braking data at waypoint " + i);
                 }
-                if (!Double.isNaN(endSpeed) && brakeZoneIn <= 0) {
-                    throw new JSONException("endSpeed requires positive brakeZoneIn at waypoint " + i);
+                if (!Double.isNaN(endSpeed) && obj.has("brakeZoneIn") && brakeZoneIn <= 0) {
+                    throw new JSONException("explicit brakeZoneIn must be positive with endSpeed at waypoint " + i);
                 }
 
                 double requestedDuration = obj.optDouble("duration", 0);

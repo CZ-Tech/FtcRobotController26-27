@@ -7,6 +7,7 @@ import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotApiRouter;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
 import org.firstinspires.ftc.teamcode.common.network.SessionLease;
+import org.firstinspires.ftc.teamcode.common.network.TelemetryStore;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.PemTls;
 import org.firstinspires.ftc.teamcode.common.network.http.RobotHttpServer;
@@ -32,6 +33,7 @@ public final class MockRobotRuntime implements AutoCloseable {
     public final MockRouteStore routes;
     public final ExecutionStateStore execution = new ExecutionStateStore();
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
+    public final TelemetryStore telemetry = new TelemetryStore();
     public final CommandCatalog commands = new CommandCatalog();
     public final OpModeLifecycleService opModes = new OpModeLifecycleService();
     public final CommandDispatcher commandDispatcher = new CommandDispatcher();
@@ -76,7 +78,8 @@ public final class MockRobotRuntime implements AutoCloseable {
                 runtime,
                 commands,
                 opModes,
-                commandDispatcher);
+                commandDispatcher,
+                telemetry);
         HttpHandler loggingHandler = exchange -> {
             MockLog.debug(
                     "HTTP",

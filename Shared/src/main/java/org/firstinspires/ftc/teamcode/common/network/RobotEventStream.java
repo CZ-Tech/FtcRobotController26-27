@@ -20,6 +20,7 @@ public final class RobotEventStream {
     private final RouteRepository routeStore;
     private final CommandCatalog commandCatalog;
     private final OpModeLifecycleService opModes;
+    private final TelemetryStore telemetryStore;
 
     public RobotEventStream(SessionLease sessionLease,
                             RobotRuntimeStore runtimeStore,
@@ -27,12 +28,24 @@ public final class RobotEventStream {
                             RouteRepository routeStore,
                             CommandCatalog commandCatalog,
                             OpModeLifecycleService opModes) {
+        this(sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes,
+                new TelemetryStore());
+    }
+
+    public RobotEventStream(SessionLease sessionLease,
+                            RobotRuntimeStore runtimeStore,
+                            ExecutionStateStore executionState,
+                            RouteRepository routeStore,
+                            CommandCatalog commandCatalog,
+                            OpModeLifecycleService opModes,
+                            TelemetryStore telemetryStore) {
         this.sessionLease = sessionLease;
         this.runtimeStore = runtimeStore;
         this.executionState = executionState;
         this.routeStore = routeStore;
         this.commandCatalog = commandCatalog;
         this.opModes = opModes;
+        this.telemetryStore = telemetryStore;
     }
 
     /**
@@ -57,9 +70,15 @@ public final class RobotEventStream {
         String lastOpModeName = null;
         long lastHeartbeat = 0;
         long nextFrameNanos = System.nanoTime();
+        // Frames are latest-value; log entries are an ordered history. A client that read
+        // the history over GET /telemetry/log passes the newest seq it saw as ?logSince=N
+        // so nothing is repeated or missed; without it only new entries are streamed.
+        long lastTelemetrySeq = -1;
+        long lastLogSeq = parseLong(exchange.request.query.get("logSince"),
+                telemetryStore.latestLogSequence());
 
         writeEvent(out, "hello", 0,
-                "{\"protocol\":2,\"poseHz\":60,\"sessionTimeoutMs\":"
+                "{\"protocol\":2,\"poseHz\":60,\"telemetryHz\":60,\"sessionTimeoutMs\":"
                         + SessionLease.DEFAULT_TIMEOUT_MS + "}");
 
         while (!Thread.currentThread().isInterrupted()) {
@@ -79,6 +98,17 @@ public final class RobotEventStream {
                 runtimeSent = true;
                 lastOpModeActive = runtime.opModeActive;
                 lastOpModeName = runtime.opModeName;
+            }
+
+            TelemetryStore.Frame frame = telemetryStore.latest();
+            if (frame.sequence != lastTelemetrySeq && frame.sequence > 0) {
+                writeEvent(out, "telemetry", frame.sequence, frame.toJson());
+                lastTelemetrySeq = frame.sequence;
+            }
+
+            for (TelemetryStore.LogEntry entry : telemetryStore.logSince(lastLogSeq)) {
+                writeEvent(out, "log", entry.sequence, entry.toJson());
+                lastLogSeq = entry.sequence;
             }
 
             ExecutionStateStore.Snapshot execution = executionState.snapshot();
@@ -133,6 +163,15 @@ public final class RobotEventStream {
                 + "data: " + json + "\n\n";
         out.write(payload.getBytes(StandardCharsets.UTF_8));
         out.flush();
+    }
+
+    private static long parseLong(String text, long fallback) {
+        if (text == null) return fallback;
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     private static boolean same(String a, String b) {

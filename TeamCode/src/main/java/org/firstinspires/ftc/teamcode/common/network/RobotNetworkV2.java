@@ -29,6 +29,8 @@ public final class RobotNetworkV2 {
     public final RouteStore routes;
     public final ExecutionStateStore execution = new ExecutionStateStore();
     public final RobotRuntimeStore runtime = new RobotRuntimeStore();
+    /** Fed by {@code ApiTelemetry}; served as /telemetry and the SSE telemetry/log events. */
+    public final TelemetryStore telemetry = new TelemetryStore();
     public final CommandCatalog commands = new CommandCatalog();
     public final OpModeLifecycleService opModes = new OpModeLifecycleService();
     /** An OpMode that runs remote commands attaches a sink here while it is RUNNING. */
@@ -48,7 +50,8 @@ public final class RobotNetworkV2 {
             Log.e(TAG, "Failed to publish subsystem commands", e);
         }
         RobotApiRouter router = new RobotApiRouter(
-                session, routes, execution, runtime, commands, opModes, commandDispatcher);
+                session, routes, execution, runtime, commands, opModes, commandDispatcher,
+                telemetry);
         server = new RobotHttpServer(port, router);
         enableTlsIfCertificateBundled(context);
     }

@@ -241,18 +241,28 @@ public final class SplineController {
     private double tangentialPower(double tangentialVel, double speedMag,
                                    double remainingArc, double rx, double ry,
                                    double tx, double ty, double dt, Parameters p) {
+        boolean autoBrakeZone = Double.isNaN(segmentBrakeZoneIn);
+        double forwardSpeed = Math.max(0, tangentialVel);
+        double brakeDistance = 0;
+        if (!Double.isNaN(segmentEndSpeed)) {
+            double excessSpeedSq = Math.max(0,
+                    forwardSpeed * forwardSpeed - segmentEndSpeed * segmentEndSpeed);
+            brakeDistance = excessSpeedSq / (2 * Math.max(1e-3, p.safeBrakeDecel));
+        }
+        // The automatic zone follows the current speed until entered, then stays
+        // active so deceleration does not make the zone shrink out from under us.
+        double triggerDistance = autoBrakeZone ? brakeDistance * 1.05 : brakeDistance;
         boolean inBrakeZone = !Double.isNaN(segmentEndSpeed)
-                && remainingArc <= segmentBrakeZoneIn;
+                && (autoBrakeZone
+                    ? wasInBrakeZone || (forwardSpeed > segmentEndSpeed
+                            && remainingArc <= triggerDistance)
+                    : remainingArc <= segmentBrakeZoneIn);
         double request;
         if (!inBrakeZone) {
             wasInBrakeZone = false;
             request = segmentMaxPower;
         } else {
-            double forwardSpeed = Math.max(0, tangentialVel);
-            double excessSpeedSq = Math.max(0,
-                    forwardSpeed * forwardSpeed - segmentEndSpeed * segmentEndSpeed);
-            double brakeDistance = excessSpeedSq / (2 * Math.max(1e-3, p.safeBrakeDecel));
-            boolean brake = forwardSpeed > segmentEndSpeed && brakeDistance >= remainingArc;
+            boolean brake = forwardSpeed > segmentEndSpeed && triggerDistance >= remainingArc;
             request = brake ? -clip(p.brakeReversePower, 0, 1) : segmentBrakeForwardPower;
             if (!wasInBrakeZone) {
                 brakeFilteredPower = request;

@@ -98,6 +98,37 @@ public class SplineControllerTest {
     }
 
     @Test
+    public void automaticBrakeUsesFivePercentMarginAndStaysInZone() {
+        start(0, Double.NaN);
+        // At 20 in/s and 30 in/s² the distance is 6.667 in; with margin it is 7 in.
+        SplineController.Output outside = at(12.9, 0, 20, 0);
+        assertFalse(outside.brakingZone);
+        assertEquals(0.8, outside.tangentPower, 1e-9);
+        SplineController.Output inside = at(13.1, 0, 20, 0);
+        assertTrue(inside.brakingZone);
+        assertEquals(-0.75, inside.tangentPower, 1e-9);
+        // Once braking slows the robot, retain the zone and its filter history.
+        SplineController.Output slower = at(13.1, 0, 10, 0);
+        assertTrue(slower.brakingZone);
+        assertEquals(-0.75 + (0.02 / 0.09) * (0.2 + 0.75),
+                slower.tangentPower, 1e-9);
+    }
+
+    @Test
+    public void automaticBrakeUsesEndSpeedAndResetsForNextSegment() {
+        start(10, Double.NaN);
+        // (20² - 10²) / (2*30) * 1.05 = 5.25 in.
+        assertFalse(at(14.7, 0, 20, 0).brakingZone);
+        assertTrue(at(14.8, 0, 20, 0).brakingZone);
+        start(10, Double.NaN);
+        SplineController.Output reverse = at(5, 0, -20, 0);
+        assertFalse(reverse.brakingZone);
+        assertEquals(0.8, reverse.tangentPower, 1e-9);
+        start(Double.NaN, Double.NaN);
+        assertFalse(at(15, 0, 20, 0).brakingZone);
+    }
+
+    @Test
     public void stopPointRequiresBothPositionAndSpeed() {
         start(0, 12);
         assertFalse(at(20, 0, 4, 0).arrived);

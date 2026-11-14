@@ -410,6 +410,50 @@ public class Scheduler<A> {
         }
     }
 
+    /**
+     * The step currently being executed on this thread, so that a subsystem method can
+     * insert waits right after itself via {@link ScheduleLifecycle#waitMillis(long)}.
+     * Only ever touched on the control thread.
+     */
+    private static final ThreadLocal<Running> CURRENT = new ThreadLocal<>();
+
+    private static final class Running {
+        final Object target;
+        final List<Step> steps;
+        final int index;
+        int inserted;
+
+        Running(Object target, List<Step> steps, int index) {
+            this.target = target;
+            this.steps = steps;
+            this.index = index;
+        }
+    }
+
+    /** See {@link ScheduleLifecycle#waitMillis(long)}. */
+    static void insertWaitMillis(Object caller, long millis) {
+        if (millis < 0) throw new IllegalArgumentException("millis < 0");
+        insertStep(caller, new WaitMillisStep(millis));
+    }
+
+    /** See {@link ScheduleLifecycle#waitUntil(BooleanSupplier)}. */
+    static void insertWaitUntil(Object caller, BooleanSupplier condition) {
+        if (condition == null) throw new IllegalArgumentException("condition == null");
+        insertStep(caller, new WaitUntilStep(condition));
+    }
+
+    /** Inserts after the running step; several calls from one step keep call order. */
+    private static void insertStep(Object caller, Step step) {
+        Running running = CURRENT.get();
+        if (running == null || running.target != caller) {
+            throw new IllegalStateException(
+                    "waitMillis/waitUntil can only be called from a subsystem method that is "
+                            + "being run by its own schedule (not from periodic(), lifecycle "
+                            + "hooks, other threads or another subsystem)");
+        }
+        running.steps.add(running.index + 1 + running.inserted++, step);
+    }
+
     private final class BuiltSchedule {
         final List<Step> steps;
         int index;
@@ -421,11 +465,22 @@ public class Scheduler<A> {
             this.finished = steps.isEmpty();
         }
 
+        private boolean runStep(Step step, long nowNanos) {
+            Running previous = CURRENT.get();
+            CURRENT.set(new Running(target, steps, index));
+            try {
+                return step.update(nowNanos);
+            } finally {
+                if (previous == null) CURRENT.remove();
+                else CURRENT.set(previous);
+            }
+        }
+
         void update(long nowNanos) {
             int budget = Math.max(1, MAX_STEPS_PER_UPDATE);
             while (!cancelled && !finished && budget-- > 0) {
                 Step step = steps.get(index);
-                if (!step.update(nowNanos)) return;
+                if (!runStep(step, nowNanos)) return;
                 index++;
                 if (index >= steps.size()) finished = true;
             }

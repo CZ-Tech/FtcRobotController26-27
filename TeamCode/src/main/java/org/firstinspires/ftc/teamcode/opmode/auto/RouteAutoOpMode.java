@@ -1,11 +1,14 @@
 package org.firstinspires.ftc.teamcode.opmode.auto;
 
 
+import android.util.Log;
+
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.Globals;
+import org.firstinspires.ftc.teamcode.common.command.auto.RouteCommandDispatcher;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
@@ -13,6 +16,7 @@ import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkService;
 import org.firstinspires.ftc.teamcode.common.network.RobotNetworkV2;
 import org.firstinspires.ftc.teamcode.common.network.RouteRepository;
+import org.firstinspires.ftc.teamcode.common.network.SubsystemCommandBinding;
 import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
 /**
@@ -21,8 +25,15 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
  * <p>The FTC SDK registers one instance of this class per route name. Selecting that
  * OpMode therefore selects exactly one route; pressing START immediately starts that
  * route. There is intentionally no independent "execute path" control plane.</p>
+ *
+ * <p>Waypoint {@code command}/{@code commandParams} are dispatched through the same
+ * subsystem schedules the remote command API uses. Dispatch is fail-fast: an unknown
+ * command, wrong argument count, bad argument, rejected schedule or parse error stops
+ * the route and the OpMode immediately instead of being skipped.</p>
  */
 public final class RouteAutoOpMode extends RobotLinearOpMode {
+    private static final String TAG = "RouteAutoOpMode";
+
     private final String routeName;
 
     public RouteAutoOpMode(String routeName) {
@@ -39,6 +50,11 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         RobotNetworkV2 network = RobotNetworkService.get();
         SplineTracker tracker = new SplineTracker(robot);
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
+        // Waypoint commands are executed on the OpMode thread through the same subsystem
+        // schedules the remote command API uses. The catalog is the one GET /commands serves.
+        RouteCommandDispatcher commands = new RouteCommandDispatcher(
+                new SubsystemCommandBinding(robot.subsystem)::submit,
+                network.commands);
         RouteRepository.Entry route = network.routes.get(routeName);
 
         if (route == null) {
@@ -60,10 +76,17 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         }
 
         SplineTrajectoryLoader.ExecutionResult started = loader.start(route.json);
+        if (started.terminal()) {
+            // A route that cannot be parsed or is empty is an error, not "nothing to do".
+            Log.e(TAG, "Route '" + routeName + "' did not start: " + started);
+            telemetry.addData("Error", started.status + ": " + started.message);
+            telemetry.update();
+            requestOpModeStop();
+            publishInactive(network, robot);
+            return;
+        }
         network.execution.publish(
-                started.running()
-                        ? ExecutionStateStore.State.RUNNING
-                        : ExecutionStateStore.State.IDLE,
+                ExecutionStateStore.State.RUNNING,
                 0,
                 routeName);
 
@@ -71,12 +94,26 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
             runWhileActive(() -> {
                 if (loader.isRunning()) {
                     loader.update();
-                    while (loader.pollEvent() != null) {
-                        // Command/marker dispatch is intentionally handled separately.
+                    SplineTrajectoryLoader.TrajectoryEvent event;
+                    while ((event = loader.pollEvent()) != null) {
+                        RouteCommandDispatcher.Result result = commands.dispatch(event);
+                        if (RouteCommandDispatcher.fatal(result)) {
+                            // Any dispatch failure terminates the whole route: no skip,
+                            // no retry, no silent default.
+                            throw new RouteAborted("frame " + event.frameIndex
+                                    + " command '" + event.command + "' -> " + result);
+                        }
                     }
                     if (!loader.isRunning()) {
+                        boolean completed = loader.getStatus()
+                                == SplineTrajectoryLoader.ExecutionStatus.COMPLETED;
+                        if (!completed) {
+                            Log.e(TAG, "Route '" + routeName + "' ended: "
+                                    + loader.getLastResult());
+                        }
                         network.execution.publish(
-                                ExecutionStateStore.State.IDLE,
+                                completed ? ExecutionStateStore.State.IDLE
+                                        : ExecutionStateStore.State.NOT_READY,
                                 0,
                                 routeName);
                         requestOpModeStop();
@@ -98,6 +135,11 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                 telemetry.addData("Frame", loader.getCurrentFrameIndex());
                 telemetry.update();
             });
+        } catch (RouteAborted aborted) {
+            Log.e(TAG, "Route '" + routeName + "' aborted: " + aborted.getMessage());
+            telemetry.addData("Aborted", aborted.getMessage());
+            telemetry.update();
+            requestOpModeStop();
         } finally {
             loader.cancel();
             tracker.stopMotor();
@@ -118,6 +160,13 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                     pose.getHeading(AngleUnit.DEGREES));
         } catch (Exception ignored) {
             network.runtime.publish(false, null, 0, 0, 0);
+        }
+    }
+
+    /** Fatal waypoint-command failure; unwinds {@code runWhileActive} immediately. */
+    private static final class RouteAborted extends RuntimeException {
+        RouteAborted(String message) {
+            super(message);
         }
     }
 }

@@ -11,22 +11,28 @@ public class Intaker implements ScheduleLifecycle {
 
     private final DcMotorEx intakerItself;
 
+
     public Intaker(Robot robot) {
         intakerItself = java.util.Objects.requireNonNull(
                 robot.hardwareMap.get(DcMotorEx.class, Globals.intaker),
                 "Intaker motor is missing: " + Globals.intaker);
-
-        this.setArmPower(0);
+        this.setIntakePower(0);
         intakerItself.setDirection(DcMotorSimple.Direction.REVERSE);
     }
 
-    private Intaker setArmPower(double power){
+
+    public void setIntakePower(double power){
         intakerItself.setPower(power);
-        return this;
+    }
+
+    public void setIntakerPower(double power, long time){
+        intakerItself.setPower(power);
+        waitMillis(time);
+        intakerItself.setPower(0.0);
     }
 
     public void intakerIn(double power){
-        this.setArmPower(power);
+        this.setIntakePower(power);
     }
 
     public void intakerIn(){
@@ -34,17 +40,17 @@ public class Intaker implements ScheduleLifecycle {
     }
 
     public void intakerArmStop(){
-        this.setArmPower(0);
+        this.setIntakePower(0);
     }
 
     @Override
     public void onScheduleCancelled() {
-        setArmPower(0);
+        setIntakePower(0);
     }
 
     /** Called by the subsystem owner on OpMode shutdown, even without an active schedule. */
     public void onShutdown() {
-        setArmPower(0);
+        setIntakePower(0);
     }
 }
 

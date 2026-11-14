@@ -217,9 +217,19 @@ public class SplineTrajectoryLoaderTest {
         assertEquals(12, driver.lastStartedPoint.brakeZoneIn, 0.0);
         assertEquals(0.2, driver.lastStartedPoint.brakeForwardPower, 0.0);
 
+        FakeMotionDriver automaticDriver = new FakeMotionDriver();
+        SplineTrajectoryLoader automatic = new SplineTrajectoryLoader(automaticDriver);
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING,
+                automatic.start("[{\"x\":0,\"y\":0},{\"x\":20,\"y\":0,\"endSpeed\":0}]").status);
+        automatic.update();
+        automatic.update();
+        assertTrue(Double.isNaN(automaticDriver.lastStartedPoint.brakeZoneIn));
+
         SplineTrajectoryLoader invalid = new SplineTrajectoryLoader(new FakeMotionDriver());
         assertEquals(SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR,
-                invalid.start("[{\"x\":0,\"y\":0,\"endSpeed\":0}]").status);
+                invalid.start("[{\"x\":0,\"y\":0,\"endSpeed\":0,\"brakeZoneIn\":0}]").status);
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR,
+                invalid.start("[{\"x\":0,\"y\":0,\"endSpeed\":0,\"brakeZoneIn\":-1}]").status);
     }
 
     @Test

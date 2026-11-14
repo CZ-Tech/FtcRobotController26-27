@@ -92,6 +92,11 @@ import java.util.List;
  *   <li>{@code schedule()} 和 {@code execute()} 可在任意线程调用（只写邮箱），
  *       硬件只在 {@link #update()} 里被碰，所以远程指令可以安全接入。</li>
  *   <li>调度步骤里抛出的异常会从 {@link #update()} 传出，使 OpMode 循环崩溃。</li>
+ *   <li>子系统方法里可以直接调用 {@code waitMillis(毫秒)} / {@code waitUntil(条件)}
+ *       （来自 {@link ScheduleLifecycle}），效果等同外面写 {@code .xxx().waitMillis(..)}：
+ *       在当前调度里、这个方法之后插入等待，不阻塞。延后的是后续调度步骤，不是方法体里
+ *       该调用后面的代码；只能在被调度执行的子系统方法里调用，否则抛
+ *       {@link IllegalStateException}。等待随调度一起被覆盖/取消。</li>
  * </ul>
  *
  * <h2>初始化时的注意事项</h2>
@@ -143,31 +148,39 @@ import java.util.List;
 public class Subsystem {
     private final Robot robot;
 
-    private final List<Scheduler<?>> all = new ArrayList<>();
+    private final List<Scheduler<?>> schedulers = new ArrayList<>();
     public final IntakerScheduler intaker;
+    public final ShooterScheduler shooter;
+    public final PullerScheduler puller;
+    /** 组合指令（无硬件），必须注册在 intaker、shooter 之后。 */
+    public final AutoCommandsScheduler auto;
+
 
     private <T extends Scheduler<?>> T add(T instance) {
-        all.add(instance);
+        schedulers.add(instance);
         return instance;
     }
 
     public Subsystem(Robot robot) {
         this.robot = robot;
         this.intaker = add(new IntakerScheduler(new Intaker(robot)));
+        this.shooter = add(new ShooterScheduler(new Shooter(robot)));
+        this.puller  = add(new PullerScheduler (new Puller(robot)));
+        this.auto = add(new AutoCommandsScheduler(new AutoCommands(intaker, shooter, puller)));
     }
 
     /** Advance every subsystem scheduler once from the OpMode/control thread. */
     public void update() {
-        for (Scheduler<?> s : all) s.update();
+        for (Scheduler<?> s : schedulers) s.update();
     }
 
     /** Invalidate all draft, pending and active subsystem schedules. */
     public void cancelAllSchedules() {
-        for (Scheduler<?> s : all) s.cancelSchedule();
+        for (Scheduler<?> s : schedulers) s.cancelSchedule();
     }
 
     /** Cancel work and stop the intake even when its last action has already finished. */
     public void shutdown() {
-        for (Scheduler<?> s : all) s.shutdown();
+        for (Scheduler<?> s : schedulers) s.shutdown();
     }
 }

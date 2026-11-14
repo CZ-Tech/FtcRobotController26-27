@@ -22,6 +22,7 @@ public final class RobotApiRouter implements HttpHandler {
     private final OpModeLifecycleService opModes;
     private final CommandDispatcher commandDispatcher;
     private final RobotEventStream eventStream;
+    private final TelemetryStore telemetryStore;
 
     public RobotApiRouter(SessionLease sessionLease,
                           RouteRepository routeStore,
@@ -30,6 +31,19 @@ public final class RobotApiRouter implements HttpHandler {
                           CommandCatalog commandCatalog,
                           OpModeLifecycleService opModes,
                           CommandDispatcher commandDispatcher) {
+        this(sessionLease, routeStore, executionState, runtimeStore, commandCatalog, opModes,
+                commandDispatcher, new TelemetryStore());
+    }
+
+    public RobotApiRouter(SessionLease sessionLease,
+                          RouteRepository routeStore,
+                          ExecutionStateStore executionState,
+                          RobotRuntimeStore runtimeStore,
+                          CommandCatalog commandCatalog,
+                          OpModeLifecycleService opModes,
+                          CommandDispatcher commandDispatcher,
+                          TelemetryStore telemetryStore) {
+        this.telemetryStore = telemetryStore;
         this.sessionLease = sessionLease;
         this.routeStore = routeStore;
         this.executionState = executionState;
@@ -38,7 +52,8 @@ public final class RobotApiRouter implements HttpHandler {
         this.opModes = opModes;
         this.commandDispatcher = commandDispatcher;
         this.eventStream = new RobotEventStream(
-                sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes);
+                sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes,
+                telemetryStore);
     }
 
     @Override
@@ -153,6 +168,36 @@ public final class RobotApiRouter implements HttpHandler {
         if ((PREFIX + "/commands/run").equals(path)) {
             if ("POST".equals(request.method)) {
                 handleCommandRun(exchange);
+            } else {
+                methodNotAllowed(exchange);
+            }
+            return;
+        }
+
+        if ((PREFIX + "/telemetry").equals(path)) {
+            if ("GET".equals(request.method)) {
+                exchange.send(HttpResponse.json(200,
+                        "{\"frame\":" + telemetryStore.latest().toJson()
+                                + ",\"logSeq\":" + telemetryStore.latestLogSequence() + "}"));
+            } else {
+                methodNotAllowed(exchange);
+            }
+            return;
+        }
+
+        if ((PREFIX + "/telemetry/log").equals(path)) {
+            if ("GET".equals(request.method)) {
+                long since = 0;
+                String raw = request.query.get("since");
+                if (raw != null) {
+                    try {
+                        since = Long.parseLong(raw.trim());
+                    } catch (NumberFormatException e) {
+                        exchange.send(HttpResponse.json(400, "{\"error\":\"invalid_since\"}"));
+                        return;
+                    }
+                }
+                exchange.send(HttpResponse.json(200, telemetryStore.logJson(since)));
             } else {
                 methodNotAllowed(exchange);
             }

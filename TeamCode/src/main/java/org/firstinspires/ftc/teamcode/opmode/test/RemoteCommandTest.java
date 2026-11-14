@@ -62,6 +62,8 @@ public class RemoteCommandTest extends RobotLinearOpMode {
                 telemetry.addData("X (in)", "%.2f", pose.getX(DistanceUnit.INCH));
                 telemetry.addData("Y (in)", "%.2f", pose.getY(DistanceUnit.INCH));
                 telemetry.addData("Heading", "%.1f°", pose.getHeading(AngleUnit.DEGREES));
+                // Shown on the Driver Station and streamed to the API (number + unit "rpm").
+                telemetry.addData("Shooter RPM", "%.0f rpm", robot.subsystem.shooter.getMotorRPM());
                 telemetry.update();
             });
         } finally {
