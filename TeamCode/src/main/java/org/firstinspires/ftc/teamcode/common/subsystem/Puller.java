@@ -12,14 +12,17 @@ public class Puller implements ScheduleLifecycle{
 
     public static int pullerState = 2;
 
-    public static int leftDown = 549;
-    public static int leftUp = 1534;
-    public static int leftStore = 2038;
-    public static int rightDown = 2340;
-    public static int rightStore = 915;
-    public static int rightUp = 1345;
+    public static int leftDown = (549 - 500)/2500;
+    public static int leftUp = (1534 - 500)/2500;
+    public static int leftStore = (2038 - 500)/2500;
+    public static int rightDown = (2340 - 500)/2500;
+    public static int rightStore = (915 - 500)/2500;
+    public static int rightUp = (1345 - 500)/2500;
 
     //setPosition里面需要填写的计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500
+    private int caculate(int degree){
+        return (degree - 500) / 2500;
+    }
     public Puller(@NonNull Robot robot){
         leftKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.leftPullerServo);
         rightKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.rightPullerServo);
@@ -28,22 +31,22 @@ public class Puller implements ScheduleLifecycle{
 
     //放下铲子
     public void down(){//最低角度状态，需要设置两个舵机的的数值
-        leftKickerServo.setPosition(Robot.NormalizePWM(leftDown));
-        rightKickerServo.setPosition(Robot.NormalizePWM(rightDown));
+        leftKickerServo.setPosition(0.0196);
+        rightKickerServo.setPosition(0.736);
         pullerState = 0;
     }
 
     //抬起铲子
     public void up(){
-        leftKickerServo.setPosition(Robot.NormalizePWM(leftUp));
-        rightKickerServo.setPosition(Robot.NormalizePWM(rightUp));
+        leftKickerServo.setPosition(0.4136);
+        rightKickerServo.setPosition(0.338);
         pullerState = 1;
     }
 
     // 收起至机器内（会挡住发射）
     public void store(){
-        leftKickerServo.setPosition(Robot.NormalizePWM(leftStore));
-        rightKickerServo.setPosition(Robot.NormalizePWM(rightStore));
+        leftKickerServo.setPosition(0.1652);
+        rightKickerServo.setPosition(0.166);
         pullerState = 2;
     }
 
