@@ -14,7 +14,7 @@ public class Globals {
     // ------------------------------------------------------------------
     // Debug / runtime
     // ------------------------------------------------------------------
-    public static boolean DEBUG = true;
+    public static boolean DEBUG = false;
     public static int PID_THREAD_Hz = 120;
 
     // ------------------------------------------------------------------
@@ -105,8 +105,8 @@ public class Globals {
     //  +           =====             +
     //  +           =====             +
     //  +++++++++++++++++++++++++++++++
-    public static double odoXOffset = 0;
-    public static double odoYOffset = -0.99872249;  // -95.99872249
+    public static double odoXOffset = -13.19;
+    public static double odoYOffset = -5.86;  // -95.99872249
 
     // TODO: 确认自己使用的里程计类型
     public static GoBildaPinpointDriver.GoBildaOdometryPods odoType = GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD;
