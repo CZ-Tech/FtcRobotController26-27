@@ -17,7 +17,7 @@ public class OdoDrivetrain {
     public DcMotorEx driveLeftBack = null;
     public DcMotorEx driveRightFront = null;
     public DcMotorEx driveRightBack = null;
-    public static double angleOffset = 0;
+    public double angleOffset = 0;
     public double tempAngle = 0;
     public double targetAngle = 0;
     public static double TURN_RANGE = 5;

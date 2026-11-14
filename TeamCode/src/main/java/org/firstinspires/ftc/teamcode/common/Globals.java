@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.common;
 
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
@@ -13,7 +14,7 @@ public class Globals {
     // ------------------------------------------------------------------
     // Debug / runtime
     // ------------------------------------------------------------------
-    public static boolean DEBUG = false;
+    public static boolean DEBUG = true;
     public static int PID_THREAD_Hz = 120;
 
     // ------------------------------------------------------------------
@@ -49,10 +50,10 @@ public class Globals {
     // Drivetrain
     // ------------------------------------------------------------------
 
-    public static DcMotor.Direction LeftFrontMotorDirection = DcMotor.Direction.REVERSE;
-    public static DcMotor.Direction RightFrontMotoDirection = DcMotor.Direction.REVERSE;
-    public static DcMotor.Direction LeftBackMotorDirection = DcMotor.Direction.REVERSE;
-    public static DcMotor.Direction RightBackMotorDirection = DcMotor.Direction.REVERSE;
+    public static DcMotor.Direction LeftFrontMotorDirection = DcMotor.Direction.FORWARD;
+    public static DcMotor.Direction RightFrontMotoDirection = DcMotor.Direction.FORWARD;
+    public static DcMotor.Direction LeftBackMotorDirection = DcMotor.Direction.FORWARD;
+    public static DcMotor.Direction RightBackMotorDirection = DcMotor.Direction.FORWARD;
 
     public static double TURN_GAIN = 0.0005;
     public static double STEER_GAIN = 0.02;
@@ -110,9 +111,9 @@ public class Globals {
     // TODO: 确认自己使用的里程计类型
     public static GoBildaPinpointDriver.GoBildaOdometryPods odoType = GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD;
     // 确认 odo 编码器方向，向前读数增加。
-    public static GoBildaPinpointDriver.EncoderDirection odoXDirection = GoBildaPinpointDriver.EncoderDirection.FORWARD;
+    public static GoBildaPinpointDriver.EncoderDirection odoXDirection = GoBildaPinpointDriver.EncoderDirection.REVERSED;
     // 确认 odo 编码器方向，向左读数增加。
-    public static GoBildaPinpointDriver.EncoderDirection odoYDirection = GoBildaPinpointDriver.EncoderDirection.REVERSED;
+    public static GoBildaPinpointDriver.EncoderDirection odoYDirection = GoBildaPinpointDriver.EncoderDirection.FORWARD;
 
     // ------------------------------------------------------------------
     // DECODE mechanism tuning

@@ -16,7 +16,7 @@ import org.firstinspires.ftc.teamcode.common.subsystem.Shooter;
  * <p>Only initializes MixedOdo and OdoDrivetrain. Vision, subsystems, commands,
  * and the rest of Robot.init() are intentionally not initialized.</p>
  */
-@TeleOp(name = "DrivetrainTest Test", group = "Test")
+@TeleOp(name = "Solo", group = "TeleOp")
 public class Solo extends RobotLinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
 
@@ -42,7 +42,6 @@ public class Solo extends RobotLinearOpMode {
 
             waitForStart();
             //shooter保持开启
-            robot.subsystem.shooter.setTargetVelocity();
 
             runWhileActive(() -> {
                 //Puller与Intake控制
@@ -54,23 +53,30 @@ public class Solo extends RobotLinearOpMode {
                 }
                 switch (pullerState){
                     case 0:
-                        robot.subsystem.puller.state0();
+                        robot.subsystem.puller.down();
+                        break;
                     case 1:
-                        robot.subsystem.puller.state1();
+                        robot.subsystem.puller.up();
+                        break;
                     case 2:
-                        robot.subsystem.puller.state2();
-                    case 3:
-                        robot.subsystem.puller.state3();
-
+                        robot.subsystem.puller.store();
+                        break;
                 }
+
                 if (gamepad1.rightBumperWasPressed()){
                     robot.subsystem.intaker.intakerIn();
                 }
+                if (gamepad1.rightBumperWasReleased()) {
+                    robot.subsystem.intaker.intakerArmStop();
+                }
 
                 //Shooter控制
-                if (gamepad1.leftBumperWasPressed()){
-                    robot.subsystem.shooter.shootBall();
+                if (gamepad1.leftTriggerWasPressed()){
+                    robot.subsystem.shooter.setTargetVelocity(3000);
                 }
+                if (gamepad1.leftBumperWasPressed()) robot.subsystem.shooter.shootBall();
+                if (gamepad1.leftTriggerWasReleased()) robot.subsystem.shooter.stopShooter();
+
                 //移动部分
                 robot.odo.update();
 

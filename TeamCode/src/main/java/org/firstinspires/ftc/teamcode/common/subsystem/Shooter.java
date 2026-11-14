@@ -31,14 +31,16 @@ public class Shooter implements ScheduleLifecycle{
                 robot.hardwareMap.get(DcMotorEx.class, Globals.Shooter),
                 "Shooter motor is missing: " + Globals.Shooter);
 
-        this.setPower(0);
+        shooterItself.setPower(0);
         shooterItself.setDirection(DcMotorSimple.Direction.REVERSE);
         updatePIDF();
 
         valveItself = java.util.Objects.requireNonNull(
                 robot.hardwareMap.get(ServoImplEx.class, Globals.valve),
                 "Shooter motor is missing: " + Globals.valve);
-        this.setPower(0);
+
+        shooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        shooterItself.setMotorEnable();
         shooterItself.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
     }
 
@@ -52,9 +54,6 @@ public class Shooter implements ScheduleLifecycle{
 
     public void setTargetVelocity(double shooterRPM) {
         isRunning = true;
-        shooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        shooterItself.setMotorEnable();
-        shooterItself.setPower(1.0);
         shooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
     }
 
@@ -72,7 +71,7 @@ public class Shooter implements ScheduleLifecycle{
 
     public void shootBall(){
         valveItself.setPosition(valveOpenDegree);
-        waitMillis(500);
+        waitMillis(1000);
         valveItself.setPosition(valveCloseDgree);
     }
     public void shootBall(long time){

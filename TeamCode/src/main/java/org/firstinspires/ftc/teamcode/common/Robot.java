@@ -131,4 +131,8 @@ public class Robot {
             Thread.currentThread().interrupt();
         }
     }
+
+    public static int NormalizePWM(int PWM) {
+        return (PWM - 500) / 2500;
+    }
 }
