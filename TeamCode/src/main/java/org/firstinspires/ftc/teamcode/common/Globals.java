@@ -179,7 +179,7 @@ public class Globals {
         /** Optional maxSpeed control; never active unless maxSpeed is in the JSON. */
         public static volatile double SPEED_LIMIT_KP = 0.075;
         public static volatile double SPEED_LIMIT_FULL_POWER_BELOW_IN_S = 6.0;
-        public static volatile double SPEED_LIMIT_MAX_REVERSE_POWER = 0.35;
+        public static volatile double SPEED_LIMIT_MAX_REVERSE_POWER = 0;
 
         // Cross-track PID. Integral defaults to zero; PD is normally sufficient.
         public static volatile double K_CROSS_P = 0.10;
