@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode.common.network;
 
 import android.content.Context;
+import org.firstinspires.ftc.teamcode.common.Globals;
 import android.util.Log;
 
 import org.firstinspires.ftc.teamcode.common.network.http.PemTls;
@@ -32,6 +33,7 @@ public final class RobotNetworkV2 {
     /** Fed by {@code ApiTelemetry}; served as /telemetry and the SSE telemetry/log events. */
     public final TelemetryStore telemetry = new TelemetryStore();
     public final CommandCatalog commands = new CommandCatalog();
+    public final AutoConfigRegistry tuning = new AutoConfigRegistry(Globals.class);
     public final OpModeLifecycleService opModes = new OpModeLifecycleService();
     /** An OpMode that runs remote commands attaches a sink here while it is RUNNING. */
     public final CommandDispatcher commandDispatcher = new CommandDispatcher();
@@ -51,7 +53,7 @@ public final class RobotNetworkV2 {
         }
         RobotApiRouter router = new RobotApiRouter(
                 session, routes, execution, runtime, commands, opModes, commandDispatcher,
-                telemetry);
+                telemetry, tuning);
         server = new RobotHttpServer(port, router);
         enableTlsIfCertificateBundled(context);
     }

@@ -10,4 +10,6 @@ java {
 dependencies {
     // Android provides org.json at runtime. MockRobot provides its own JVM implementation.
     compileOnly 'org.json:json:20240303'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
+import org.firstinspires.ftc.teamcode.common.network.AutoConfig;
 import org.firstinspires.ftc.teamcode.common.vision.ColorRange;
 
 public class Globals {
@@ -145,93 +146,97 @@ public class Globals {
     public static Pose2D RED_GOAL_POS = new Pose2D(DistanceUnit.INCH, -72, 72, AngleUnit.DEGREES, 0);
     public static Pose2D BLUE_GOAL_POS = new Pose2D(DistanceUnit.INCH, -72, -72, AngleUnit.DEGREES, 0);
 
-    // ==================================================================
-    // Spline autonomous path following
-    //
-    // Moved here from SplineTracker so every autonomous tuning knob has a
-    // single home. SplineTracker.currentTuning() copies this block into
-    // SplineController.Parameters once per control tick, so assigning to
-    // any of these fields at runtime takes effect on the next tick.
-    // Units: inches, degrees, seconds, inch/s, inch/s^2.
-    // ==================================================================
+    @AutoConfig("自动驾驶")
+    public static final class Auto {
+        private Auto() {}
+        // ==================================================================
+        // Spline autonomous path following
+        //
+        // Code values are the defaults. @AutoConfig permits temporary reflection
+        // writes while the robot program is running; no override is persisted.
+        // Most values are read each control tick. Geometry/segment setup values
+        // (e.g. ARC_SAMPLES) take effect on the next movement segment.
+        // Units: inches, degrees, seconds, inch/s, inch/s^2.
+        // ==================================================================
 
-    /** Verbose per-tick spline log output; diagnostics only. */
-    public static boolean LOG_VERBOSE = false;
+        /** Verbose per-tick spline log output; diagnostics only. */
+        public static volatile boolean LOG_VERBOSE = false;
 
-    // ------------------------------------------------------------------
-    // Control
-    // ------------------------------------------------------------------
+        // ------------------------------------------------------------------
+        // Control
+        // ------------------------------------------------------------------
 
-    /** Conservative *measured* effective deceleration in inch/s^2. Must be calibrated. */
-    public static double SAFE_BRAKE_DECEL = 30.0;
-    /** Negative tangential motor-power magnitude requested by the Bang-Bang brake. */
-    public static double BRAKE_REVERSE_POWER = 0.75;
-    /** Default positive power ceiling once inside a JSON braking zone. */
-    public static double DEFAULT_BRAKE_FORWARD_POWER = 0.30;
-    /** One-pole filter time constant, seconds; applies ONLY within a braking zone. */
-    public static double BRAKE_FILTER_TAU_S = 0.07;
+        /** Conservative *measured* effective deceleration in inch/s^2. Must be calibrated. */
+        public static volatile double SAFE_BRAKE_DECEL = 30.0;
+        /** Negative tangential motor-power magnitude requested by the Bang-Bang brake. */
+        public static volatile double BRAKE_REVERSE_POWER = 0.75;
+        /** Default positive power ceiling once inside a JSON braking zone. */
+        public static volatile double DEFAULT_BRAKE_FORWARD_POWER = 0.30;
+        /** One-pole filter time constant, seconds; applies ONLY within a braking zone. */
+        public static volatile double BRAKE_FILTER_TAU_S = 0.07;
 
-    /** Optional maxSpeed control; never active unless maxSpeed is in the JSON. */
-    public static double SPEED_LIMIT_KP = 0.075;
-    public static double SPEED_LIMIT_FULL_POWER_BELOW_IN_S = 6.0;
-    public static double SPEED_LIMIT_MAX_REVERSE_POWER = 0.35;
+        /** Optional maxSpeed control; never active unless maxSpeed is in the JSON. */
+        public static volatile double SPEED_LIMIT_KP = 0.075;
+        public static volatile double SPEED_LIMIT_FULL_POWER_BELOW_IN_S = 6.0;
+        public static volatile double SPEED_LIMIT_MAX_REVERSE_POWER = 0.35;
 
-    // Cross-track PID. Integral defaults to zero; PD is normally sufficient.
-    public static double K_CROSS_P = 0.10;
-    public static double K_CROSS_I = 0.0;
-    public static double K_CROSS_D = 0.010;
-    public static double CROSS_I_MAX_POWER = 0.20;
-    public static double CROSS_D_ALPHA = 0.25;
+        // Cross-track PID. Integral defaults to zero; PD is normally sufficient.
+        public static volatile double K_CROSS_P = 0.10;
+        public static volatile double K_CROSS_I = 0.0;
+        public static volatile double K_CROSS_D = 0.010;
+        public static volatile double CROSS_I_MAX_POWER = 0.20;
+        public static volatile double CROSS_D_ALPHA = 0.25;
 
-    // Heading controller kept intentionally simple.
-    public static double K_HEADING = 0.02;
-    public static double TURN_DEAD_AREA = 0.0;
+        // Heading controller kept intentionally simple.
+        public static volatile double K_HEADING = 0.02;
+        public static volatile double TURN_DEAD_AREA = 0.0;
 
-    /** Low-pass filter for odometry-derived velocity. 1 = raw, smaller = smoother. */
-    public static double VELOCITY_FILTER_ALPHA = 0.35;
+        /** Low-pass filter for odometry-derived velocity. 1 = raw, smaller = smoother. */
+        public static volatile double VELOCITY_FILTER_ALPHA = 0.35;
 
-    /** Translation command vector magnitude limit before sending to drivetrain. */
-    public static double MAX_TRANSLATION_POWER = 1.0;
+        /** Translation command vector magnitude limit before sending to drivetrain. */
+        public static volatile double MAX_TRANSLATION_POWER = 1.0;
 
-    // ------------------------------------------------------------------
-    // Projection / geometry
-    // ------------------------------------------------------------------
-    public static int ARC_SAMPLES = 240;
-    public static int PROJECTION_SAMPLES = 14;
-    public static int NEWTON_ITERS = 4;
+        // ------------------------------------------------------------------
+        // Projection / geometry
+        // ------------------------------------------------------------------
+        public static volatile int ARC_SAMPLES = 240;
+        public static volatile int PROJECTION_SAMPLES = 14;
+        public static volatile int NEWTON_ITERS = 4;
 
-    /** Search a little behind the previous projection, in path inches. */
-    public static double PROJECTION_BACKTRACK_IN = 3.0;
+        /** Search a little behind the previous projection, in path inches. */
+        public static volatile double PROJECTION_BACKTRACK_IN = 3.0;
 
-    /** Search ahead of the previous projection, in path inches. */
-    public static double PROJECTION_FORWARD_IN = 18.0;
+        /** Search ahead of the previous projection, in path inches. */
+        public static volatile double PROJECTION_FORWARD_IN = 18.0;
 
-    /** Used when spline derivative is ~0 at a Hermite endpoint. */
-    public static double TANGENT_SAMPLE_DU = 0.01;
+        /** Used when spline derivative is ~0 at a Hermite endpoint. */
+        public static volatile double TANGENT_SAMPLE_DU = 0.01;
 
-    // ------------------------------------------------------------------
-    // Completion / safety
-    // ------------------------------------------------------------------
-    public static double END_U_THRESHOLD = 0.94;
-    /** Maximum lateral offset at the finish line for a pass-through handoff. */
-    public static double PASS_MAX_CROSS_ERROR_IN = 8.0;
-    public static double STOP_POS_THRESHOLD_IN = 1.0;
-    public static double STOP_HEADING_THRESHOLD_DEG = 3.0;
-    public static double STOP_SPEED_THRESHOLD_IN_S = 3.0;
-    public static double STOP_CAPTURE_DISTANCE_IN = 3.0;
-    public static double STOP_CAPTURE_ENTRY_SPEED_IN_S = 6.0;
-    public static double STOP_CAPTURE_KP = 0.12;
-    public static double STOP_CAPTURE_MAX_POWER = 0.25;
-    public static double DEGENERATE_ARC_THRESHOLD = 0.05;
+        // ------------------------------------------------------------------
+        // Completion / safety
+        // ------------------------------------------------------------------
+        public static volatile double END_U_THRESHOLD = 0.94;
+        /** Maximum lateral offset at the finish line for a pass-through handoff. */
+        public static volatile double PASS_MAX_CROSS_ERROR_IN = 8.0;
+        public static volatile double STOP_POS_THRESHOLD_IN = 1.0;
+        public static volatile double STOP_HEADING_THRESHOLD_DEG = 3.0;
+        public static volatile double STOP_SPEED_THRESHOLD_IN_S = 3.0;
+        public static volatile double STOP_CAPTURE_DISTANCE_IN = 3.0;
+        public static volatile double STOP_CAPTURE_ENTRY_SPEED_IN_S = 6.0;
+        public static volatile double STOP_CAPTURE_KP = 0.12;
+        public static volatile double STOP_CAPTURE_MAX_POWER = 0.25;
+        public static volatile double DEGENERATE_ARC_THRESHOLD = 0.05;
 
-    /** <= 0 disables stall detection. A stall is NOT treated as arrival. */
-    public static double STALL_TIMEOUT_S = 2.0;
-    public static double STALL_PROGRESS_EPS_IN = 0.08;
-    public static double STALL_END_ERROR_EPS_IN = 0.05;
+        /** <= 0 disables stall detection. A stall is NOT treated as arrival. */
+        public static volatile double STALL_TIMEOUT_S = 2.0;
+        public static volatile double STALL_PROGRESS_EPS_IN = 0.08;
+        public static volatile double STALL_END_ERROR_EPS_IN = 0.05;
 
-    // ------------------------------------------------------------------
-    // Optional voltage compensation (closed-loop control generally needs little)
-    // ------------------------------------------------------------------
-    public static double motorVoltage = 12.0;
-    public static double VOLTAGE_COMP_WEIGHT = 0.0;
+        // ------------------------------------------------------------------
+        // Optional voltage compensation (closed-loop control generally needs little)
+        // ------------------------------------------------------------------
+        public static volatile double motorVoltage = 12.0;
+        public static volatile double VOLTAGE_COMP_WEIGHT = 0.0;
+    }
 }

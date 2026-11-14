@@ -21,6 +21,7 @@ public final class RobotEventStream {
     private final CommandCatalog commandCatalog;
     private final OpModeLifecycleService opModes;
     private final TelemetryStore telemetryStore;
+    private final AutoConfigRegistry tuning;
 
     public RobotEventStream(SessionLease sessionLease,
                             RobotRuntimeStore runtimeStore,
@@ -39,6 +40,19 @@ public final class RobotEventStream {
                             CommandCatalog commandCatalog,
                             OpModeLifecycleService opModes,
                             TelemetryStore telemetryStore) {
+        this(sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes,
+                telemetryStore, new AutoConfigRegistry(Object.class));
+    }
+
+    public RobotEventStream(SessionLease sessionLease,
+                            RobotRuntimeStore runtimeStore,
+                            ExecutionStateStore executionState,
+                            RouteRepository routeStore,
+                            CommandCatalog commandCatalog,
+                            OpModeLifecycleService opModes,
+                            TelemetryStore telemetryStore,
+                            AutoConfigRegistry tuning) {
+        this.tuning = tuning;
         this.sessionLease = sessionLease;
         this.runtimeStore = runtimeStore;
         this.executionState = executionState;
@@ -64,6 +78,7 @@ public final class RobotEventStream {
         long lastExecutionRevision = -1;
         long lastRouteRevision = -1;
         long lastCommandRevision = -1;
+        long lastTuningRevision = -1;
         long lastOpModeRevision = -1;
         boolean runtimeSent = false;
         boolean lastOpModeActive = false;
@@ -135,6 +150,13 @@ public final class RobotEventStream {
                 writeEvent(out, "commands", commandRevision,
                         "{\"revision\":" + commandRevision + "}");
                 lastCommandRevision = commandRevision;
+            }
+
+            long tuningRevision = tuning.revision();
+            if (tuningRevision != lastTuningRevision) {
+                writeEvent(out, "tuning", tuningRevision,
+                        "{\"revision\":" + tuningRevision + "}");
+                lastTuningRevision = tuningRevision;
             }
 
             if (now - lastHeartbeat >= HEARTBEAT_MS) {

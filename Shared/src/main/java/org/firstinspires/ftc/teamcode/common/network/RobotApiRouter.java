@@ -23,6 +23,7 @@ public final class RobotApiRouter implements HttpHandler {
     private final CommandDispatcher commandDispatcher;
     private final RobotEventStream eventStream;
     private final TelemetryStore telemetryStore;
+    private final AutoConfigRegistry tuning;
 
     public RobotApiRouter(SessionLease sessionLease,
                           RouteRepository routeStore,
@@ -43,6 +44,20 @@ public final class RobotApiRouter implements HttpHandler {
                           OpModeLifecycleService opModes,
                           CommandDispatcher commandDispatcher,
                           TelemetryStore telemetryStore) {
+        this(sessionLease, routeStore, executionState, runtimeStore, commandCatalog,
+                opModes, commandDispatcher, telemetryStore, new AutoConfigRegistry(Object.class));
+    }
+
+    public RobotApiRouter(SessionLease sessionLease,
+                          RouteRepository routeStore,
+                          ExecutionStateStore executionState,
+                          RobotRuntimeStore runtimeStore,
+                          CommandCatalog commandCatalog,
+                          OpModeLifecycleService opModes,
+                          CommandDispatcher commandDispatcher,
+                          TelemetryStore telemetryStore,
+                          AutoConfigRegistry tuning) {
+        this.tuning = tuning;
         this.telemetryStore = telemetryStore;
         this.sessionLease = sessionLease;
         this.routeStore = routeStore;
@@ -53,7 +68,7 @@ public final class RobotApiRouter implements HttpHandler {
         this.commandDispatcher = commandDispatcher;
         this.eventStream = new RobotEventStream(
                 sessionLease, runtimeStore, executionState, routeStore, commandCatalog, opModes,
-                telemetryStore);
+                telemetryStore, tuning);
     }
 
     @Override
@@ -165,6 +180,25 @@ public final class RobotApiRouter implements HttpHandler {
             return;
         }
 
+        if ((PREFIX + "/tuning").equals(path)) {
+            if ("GET".equals(request.method)) {
+                exchange.send(HttpResponse.json(200, tuning.snapshotJson()));
+            } else if ("PATCH".equals(request.method)) {
+                handleTuningPatch(exchange);
+            } else {
+                methodNotAllowed(exchange);
+            }
+            return;
+        }
+        if ((PREFIX + "/tuning/reset").equals(path)) {
+            if ("POST".equals(request.method)) {
+                handleTuningReset(exchange);
+            } else {
+                methodNotAllowed(exchange);
+            }
+            return;
+        }
+
         if ((PREFIX + "/commands/run").equals(path)) {
             if ("POST".equals(request.method)) {
                 handleCommandRun(exchange);
@@ -251,6 +285,43 @@ public final class RobotApiRouter implements HttpHandler {
         }
 
         methodNotAllowed(exchange);
+    }
+
+    private void handleTuningPatch(HttpExchange exchange) throws Exception {
+        JSONObject body = parseJsonObject(exchange.request);
+        if (body == null || !body.has("expectedRevision")) {
+            exchange.send(HttpResponse.json(400, "{\"error\":\"invalid_tuning_request\"}"));
+            return;
+        }
+        JSONObject values = body.optJSONObject("values");
+        try {
+            tuning.patch(body.getLong("expectedRevision"), values);
+            exchange.send(HttpResponse.json(200, tuning.snapshotJson()));
+        } catch (AutoConfigRegistry.RevisionConflict e) {
+            exchange.send(HttpResponse.json(409,
+                    "{\"error\":\"state_changed\",\"actual\":" + e.actual + "}"));
+        } catch (IllegalArgumentException | org.json.JSONException e) {
+            exchange.send(HttpResponse.json(400,
+                    "{\"error\":\"invalid_tuning_value\",\"message\":\""
+                            + JsonUtil.escape(e.getMessage()) + "\"}"));
+        }
+    }
+
+    private void handleTuningReset(HttpExchange exchange) throws Exception {
+        JSONObject body = parseJsonObject(exchange.request);
+        if (body == null || !body.has("expectedRevision")) {
+            exchange.send(HttpResponse.json(400, "{\"error\":\"invalid_tuning_request\"}"));
+            return;
+        }
+        try {
+            tuning.reset(body.getLong("expectedRevision"));
+            exchange.send(HttpResponse.json(200, tuning.snapshotJson()));
+        } catch (AutoConfigRegistry.RevisionConflict e) {
+            exchange.send(HttpResponse.json(409,
+                    "{\"error\":\"state_changed\",\"actual\":" + e.actual + "}"));
+        } catch (org.json.JSONException e) {
+            exchange.send(HttpResponse.json(400, "{\"error\":\"invalid_tuning_request\"}"));
+        }
     }
 
     private void handleRoute(HttpExchange exchange, String name) throws Exception {

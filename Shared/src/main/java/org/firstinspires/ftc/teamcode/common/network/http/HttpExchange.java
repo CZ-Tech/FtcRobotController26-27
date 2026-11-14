@@ -14,7 +14,7 @@ import java.util.Map;
 public final class HttpExchange {
     public static final String BROWSER_ACCESS_HEADERS =
             "Access-Control-Allow-Origin: *\r\n"
-            + "Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS\r\n"
+            + "Access-Control-Allow-Methods: GET, PUT, PATCH, POST, DELETE, OPTIONS\r\n"
             + "Access-Control-Allow-Headers: Content-Type, X-Az-Session, If-Match, Last-Event-ID\r\n"
             + "Access-Control-Expose-Headers: ETag, X-Route-Revision\r\n"
             + "Access-Control-Allow-Private-Network: true\r\n"

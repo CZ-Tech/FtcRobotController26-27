@@ -225,7 +225,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         double maxPower = Range.clip(target.maxPower, 0, 1);
         segmentEndSpeed = target.endSpeed;
         double brakeForwardPower = Double.isNaN(target.brakeForwardPower)
-                ? Range.clip(Globals.DEFAULT_BRAKE_FORWARD_POWER, 0, 1)
+                ? Range.clip(Globals.Auto.DEFAULT_BRAKE_FORWARD_POWER, 0, 1)
                 : Range.clip(target.brakeForwardPower, 0, 1);
         brakeForwardPower = Math.min(brakeForwardPower, maxPower);
 
@@ -240,7 +240,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.segmentIndex++;
 
         activeGeometry = new SplineGeometry(this.lx, this.ly, this.ldx, this.ldy,
-                this.x, this.y, this.dx, this.dy, Globals.ARC_SAMPLES);
+                this.x, this.y, this.dx, this.dy, Globals.Auto.ARC_SAMPLES);
         activeUnwrappedHeading = target.heading;
         double hDiff = target.heading - this.heading;
         while (hDiff > 180) {
@@ -257,7 +257,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
         stallTimer.reset();
         lastSegmentStatus = SegmentStatus.RUNNING;
-        activeHeadingOnly = activeGeometry.totalLength() < Globals.DEGENERATE_ARC_THRESHOLD;
+        activeHeadingOnly = activeGeometry.totalLength() < Globals.Auto.DEGENERATE_ARC_THRESHOLD;
         // Passing through a waypoint keeps the prior filtered velocity and PID history.
         if (!odometryVelocityReady) {
             rebaseVelocityEstimator();
@@ -277,36 +277,36 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
 
     /** Copy live Globals tuning into the hardware-free controller. */
     private SplineController.Parameters currentTuning() {
-        tuning.projectionSamples = Globals.PROJECTION_SAMPLES;
-        tuning.newtonIterations = Globals.NEWTON_ITERS;
-        tuning.projectionBacktrackIn = Globals.PROJECTION_BACKTRACK_IN;
-        tuning.projectionForwardIn = Globals.PROJECTION_FORWARD_IN;
-        tuning.tangentSampleDu = Globals.TANGENT_SAMPLE_DU;
-        tuning.crossP = Globals.K_CROSS_P;
-        tuning.crossI = Globals.K_CROSS_I;
-        tuning.crossD = Globals.K_CROSS_D;
-        tuning.crossIMaxPower = Globals.CROSS_I_MAX_POWER;
-        tuning.crossDAlpha = Globals.CROSS_D_ALPHA;
-        tuning.headingP = Globals.K_HEADING;
-        tuning.turnDeadArea = Globals.TURN_DEAD_AREA;
-        tuning.safeBrakeDecel = Globals.SAFE_BRAKE_DECEL;
-        tuning.brakeReversePower = Globals.BRAKE_REVERSE_POWER;
-        tuning.brakeFilterTauS = Globals.BRAKE_FILTER_TAU_S;
-        tuning.speedLimitKp = Globals.SPEED_LIMIT_KP;
-        tuning.speedLimitFullPowerBelowInS = Globals.SPEED_LIMIT_FULL_POWER_BELOW_IN_S;
-        tuning.speedLimitMaxReversePower = Globals.SPEED_LIMIT_MAX_REVERSE_POWER;
-        tuning.stopCaptureDistanceIn = Globals.STOP_CAPTURE_DISTANCE_IN;
-        tuning.stopCaptureEntrySpeedInS = Globals.STOP_CAPTURE_ENTRY_SPEED_IN_S;
-        tuning.stopCaptureKp = Globals.STOP_CAPTURE_KP;
-        tuning.stopCaptureMaxPower = Globals.STOP_CAPTURE_MAX_POWER;
-        tuning.stopPosThresholdIn = Globals.STOP_POS_THRESHOLD_IN;
-        tuning.stopHeadingThresholdDeg = Globals.STOP_HEADING_THRESHOLD_DEG;
-        tuning.stopSpeedThresholdInS = Globals.STOP_SPEED_THRESHOLD_IN_S;
-        tuning.endUThreshold = Globals.END_U_THRESHOLD;
-        tuning.passMaxCrossErrorIn = Globals.PASS_MAX_CROSS_ERROR_IN;
-        tuning.motorVoltage = Globals.motorVoltage;
-        tuning.voltageCompWeight = Globals.VOLTAGE_COMP_WEIGHT;
-        tuning.maxTranslationPower = Globals.MAX_TRANSLATION_POWER;
+        tuning.projectionSamples = Globals.Auto.PROJECTION_SAMPLES;
+        tuning.newtonIterations = Globals.Auto.NEWTON_ITERS;
+        tuning.projectionBacktrackIn = Globals.Auto.PROJECTION_BACKTRACK_IN;
+        tuning.projectionForwardIn = Globals.Auto.PROJECTION_FORWARD_IN;
+        tuning.tangentSampleDu = Globals.Auto.TANGENT_SAMPLE_DU;
+        tuning.crossP = Globals.Auto.K_CROSS_P;
+        tuning.crossI = Globals.Auto.K_CROSS_I;
+        tuning.crossD = Globals.Auto.K_CROSS_D;
+        tuning.crossIMaxPower = Globals.Auto.CROSS_I_MAX_POWER;
+        tuning.crossDAlpha = Globals.Auto.CROSS_D_ALPHA;
+        tuning.headingP = Globals.Auto.K_HEADING;
+        tuning.turnDeadArea = Globals.Auto.TURN_DEAD_AREA;
+        tuning.safeBrakeDecel = Globals.Auto.SAFE_BRAKE_DECEL;
+        tuning.brakeReversePower = Globals.Auto.BRAKE_REVERSE_POWER;
+        tuning.brakeFilterTauS = Globals.Auto.BRAKE_FILTER_TAU_S;
+        tuning.speedLimitKp = Globals.Auto.SPEED_LIMIT_KP;
+        tuning.speedLimitFullPowerBelowInS = Globals.Auto.SPEED_LIMIT_FULL_POWER_BELOW_IN_S;
+        tuning.speedLimitMaxReversePower = Globals.Auto.SPEED_LIMIT_MAX_REVERSE_POWER;
+        tuning.stopCaptureDistanceIn = Globals.Auto.STOP_CAPTURE_DISTANCE_IN;
+        tuning.stopCaptureEntrySpeedInS = Globals.Auto.STOP_CAPTURE_ENTRY_SPEED_IN_S;
+        tuning.stopCaptureKp = Globals.Auto.STOP_CAPTURE_KP;
+        tuning.stopCaptureMaxPower = Globals.Auto.STOP_CAPTURE_MAX_POWER;
+        tuning.stopPosThresholdIn = Globals.Auto.STOP_POS_THRESHOLD_IN;
+        tuning.stopHeadingThresholdDeg = Globals.Auto.STOP_HEADING_THRESHOLD_DEG;
+        tuning.stopSpeedThresholdInS = Globals.Auto.STOP_SPEED_THRESHOLD_IN_S;
+        tuning.endUThreshold = Globals.Auto.END_U_THRESHOLD;
+        tuning.passMaxCrossErrorIn = Globals.Auto.PASS_MAX_CROSS_ERROR_IN;
+        tuning.motorVoltage = Globals.Auto.motorVoltage;
+        tuning.voltageCompWeight = Globals.Auto.VOLTAGE_COMP_WEIGHT;
+        tuning.maxTranslationPower = Globals.Auto.MAX_TRANSLATION_POWER;
         return tuning;
     }
 
@@ -339,7 +339,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         double ry = getY();
         double curH = getHeading();
 
-        velocityEstimator.update(rx, ry, dt, Globals.VELOCITY_FILTER_ALPHA);
+        velocityEstimator.update(rx, ry, dt, Globals.Auto.VELOCITY_FILTER_ALPHA);
         double voltage = robot.getVoltage();
         SplineController.Output output = controller.update(
                 new SplineController.Input(rx, ry, curH,
@@ -368,14 +368,14 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         gotoY = pathY;
         gotoH = targetH;
 
-        if (Globals.STALL_TIMEOUT_S > 0) {
-            boolean progressed = progressS >= stallLastProgressS + Globals.STALL_PROGRESS_EPS_IN;
-            boolean endImproved = endPosError <= bestEndError - Globals.STALL_END_ERROR_EPS_IN;
+        if (Globals.Auto.STALL_TIMEOUT_S > 0) {
+            boolean progressed = progressS >= stallLastProgressS + Globals.Auto.STALL_PROGRESS_EPS_IN;
+            boolean endImproved = endPosError <= bestEndError - Globals.Auto.STALL_END_ERROR_EPS_IN;
             if (progressed || endImproved) {
                 if (progressed) stallLastProgressS = progressS;
                 if (endPosError < bestEndError) bestEndError = endPosError;
                 stallTimer.reset();
-            } else if (stallTimer.seconds() >= Globals.STALL_TIMEOUT_S && !done) {
+            } else if (stallTimer.seconds() >= Globals.Auto.STALL_TIMEOUT_S && !done) {
                 return finishActiveSegment(SegmentStatus.STALLED);
             }
         }
@@ -402,7 +402,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         robot.telemetry.addData("cmdXY", String.format("%.3f, %.3f", powerX, powerY));
         robot.telemetry.addData("Voltage", voltage);
 
-        if (Globals.LOG_VERBOSE) {
+        if (Globals.Auto.LOG_VERBOSE) {
             Log.i("SplineTracker", "seg=" + segmentIndex
                     + " u=" + String.format("%.4f", closestU)
                     + " s=" + String.format("%.2f", progressS)
@@ -429,19 +429,19 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         gotoY = getY();
         gotoH = activeUnwrappedHeading;
 
-        if (absError <= Globals.STOP_HEADING_THRESHOLD_DEG) {
+        if (absError <= Globals.Auto.STOP_HEADING_THRESHOLD_DEG) {
             return finishActiveSegment(SegmentStatus.ARRIVED);
         }
 
         if (absError <= bestEndError - 0.5) {
             bestEndError = absError;
             stallTimer.reset();
-        } else if (Globals.STALL_TIMEOUT_S > 0 && stallTimer.seconds() >= Globals.STALL_TIMEOUT_S) {
+        } else if (Globals.Auto.STALL_TIMEOUT_S > 0 && stallTimer.seconds() >= Globals.Auto.STALL_TIMEOUT_S) {
             return finishActiveSegment(SegmentStatus.STALLED);
         }
 
         double yawPower = SplineController.headingPowerFromError(
-                error, Globals.K_HEADING, Globals.TURN_DEAD_AREA);
+                error, Globals.Auto.K_HEADING, Globals.Auto.TURN_DEAD_AREA);
 
         if (!Globals.DEBUG) {
             robot.odoDrivetrain.driveRobotFieldCentric(0, 0, -yawPower);
