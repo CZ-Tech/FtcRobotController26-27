@@ -4,7 +4,6 @@ import static org.firstinspires.ftc.teamcode.common.Globals.ShooterD;
 import static org.firstinspires.ftc.teamcode.common.Globals.ShooterF;
 import static org.firstinspires.ftc.teamcode.common.Globals.ShooterI;
 import static org.firstinspires.ftc.teamcode.common.Globals.ShooterP;
-import static org.firstinspires.ftc.teamcode.common.Globals.valve;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
@@ -24,7 +23,7 @@ public class Shooter implements ScheduleLifecycle{
     static final double COUNTS_PER_MOTOR_REV = 28.0;
     public double r = 0;
     public double valveOpenDegree = 1;//这个数据需要更改！具体数据计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500。下一行的同理。分别为挡板打开（发射），与关闭（阻止发射）
-    public double valveCloseDgree = 0;//这个数据需要更改！
+    public double valveCloseDegree = 0;//这个数据需要更改！
 
     public Shooter(Robot robot) {
         shooterItself = java.util.Objects.requireNonNull(
@@ -32,7 +31,7 @@ public class Shooter implements ScheduleLifecycle{
                 "Shooter motor is missing: " + Globals.Shooter);
 
         shooterItself.setPower(0);
-        shooterItself.setDirection(DcMotorSimple.Direction.REVERSE);
+        shooterItself.setDirection(DcMotorSimple.Direction.FORWARD);
         updatePIDF();
 
         valveItself = java.util.Objects.requireNonNull(
@@ -57,6 +56,10 @@ public class Shooter implements ScheduleLifecycle{
         shooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
     }
 
+    public void setValvePos(double n) {
+        valveItself.setPosition(n);
+    }
+
 //    public void setTatgetVelocity(double shooterRPM , long time){
 //        isRunning = true;
 //        shooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -69,16 +72,6 @@ public class Shooter implements ScheduleLifecycle{
 //        shooterItself.setPower(0.0);
 //    }
 
-    public void shootBall(){
-        valveItself.setPosition(valveOpenDegree);
-        waitMillis(1000);
-        valveItself.setPosition(valveCloseDgree);
-    }
-    public void shootBall(long time){
-        valveItself.setPosition(valveOpenDegree);
-        waitMillis(time);
-        valveItself.setPosition(valveCloseDgree);
-    }
     public void stopShooter(){
         setPower(0);
     }

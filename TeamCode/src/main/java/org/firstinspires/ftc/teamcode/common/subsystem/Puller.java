@@ -6,52 +6,70 @@ import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
 
 @GenerateSchedule
-public class Puller implements ScheduleLifecycle{
-    public ServoImplEx leftKickerServo;
-    public ServoImplEx rightKickerServo;
+public class Puller implements ScheduleLifecycle {
+    public static final int STATE_DOWN = 0;
+    public static final int STATE_UP = 1;
+    public static final int STATE_STORE = 2;
 
-    public static int pullerState = 2;
+    private static final double SERVO_MIN = 500.0;
+    private static final double SERVO_MAX = 2500.0;
 
-    public static double leftDown = (549 - 500)/2500.0;
-    public static double leftUp = (1534 - 500)/2500.0;
-    public static double leftStore = (2038 - 500)/2500.0;
-    public static double rightDown = (2340 - 500)/2500.0;
-    public static double rightStore = (915 - 500)/2500.0;
-    public static double rightUp = (1345 - 500)/2500.0;
+    private static final double LEFT_DOWN = 0.0196;
+    private static final double RIGHT_DOWN = 0.736;
+    private static final double LEFT_UP = 0.4136;
+    private static final double RIGHT_UP = 0.338;
+    private static final double LEFT_STORE = 0.1652;
+    private static final double RIGHT_STORE = 0.166;
 
-    //setPosition里面需要填写的计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500
-    private int caculate(int degree){
-        return (degree - 500) / 2500;
+    private final ServoImplEx leftKickerServo;
+    private final ServoImplEx rightKickerServo;
+    private int pullerState = STATE_STORE;
+
+    private double calculate(double degree) {
+        return (degree - SERVO_MIN) / (SERVO_MAX - SERVO_MIN);
     }
-    public Puller(@NonNull Robot robot){
+
+    public Puller(@NonNull Robot robot) {
         leftKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.leftPullerServo);
         rightKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.rightPullerServo);
-
     }
 
-    //放下铲子
-    public void down(){//最低角度状态，需要设置两个舵机的的数值
-        leftKickerServo.setPosition(0.0196);
-        rightKickerServo.setPosition(0.736);
-        pullerState = 0;
+    public void down() {
+        leftKickerServo.setPosition(LEFT_DOWN);
+        rightKickerServo.setPosition(RIGHT_DOWN);
+        pullerState = STATE_DOWN;
     }
 
-    //抬起铲子
-    public void up(){
-        leftKickerServo.setPosition(0.4136);
-        rightKickerServo.setPosition(0.338);
-        pullerState = 1;
+    public void up() {
+        leftKickerServo.setPosition(LEFT_UP);
+        rightKickerServo.setPosition(RIGHT_UP);
+        pullerState = STATE_UP;
     }
 
-    // 收起至机器内（会挡住发射）
-    public void store(){
-        leftKickerServo.setPosition(0.1652);
-        rightKickerServo.setPosition(0.166);
-        pullerState = 2;
+    public void store() {
+        leftKickerServo.setPosition(LEFT_STORE);
+        rightKickerServo.setPosition(RIGHT_STORE);
+        pullerState = STATE_STORE;
     }
 
     public int getPullerState() {
         return pullerState;
+    }
+
+    public void setState(int state) {
+        switch (state) {
+            case STATE_DOWN:
+                down();
+                break;
+            case STATE_UP:
+                up();
+                break;
+            case STATE_STORE:
+                store();
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown puller state: " + state);
+        }
     }
 }
 

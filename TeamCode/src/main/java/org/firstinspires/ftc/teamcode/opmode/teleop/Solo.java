@@ -8,6 +8,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
+import org.firstinspires.ftc.teamcode.common.subsystem.Puller;
 import org.firstinspires.ftc.teamcode.common.subsystem.Shooter;
 
 /**
@@ -19,6 +20,8 @@ import org.firstinspires.ftc.teamcode.common.subsystem.Shooter;
 @TeleOp(name = "Solo", group = "TeleOp")
 public class Solo extends RobotLinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
+
+    private boolean ShooterOn = false;
 
     @Override
     protected void runRobotOpMode() {
@@ -45,22 +48,18 @@ public class Solo extends RobotLinearOpMode {
 
             runWhileActive(() -> {
                 //Puller与Intake控制
-                int pullerState = robot.subsystem.puller.getPullerState();
-                if (gamepad1.dpadUpWasPressed() && pullerState < 2)
-                    pullerState += 1;
-                if (gamepad1.dpadDownWasPressed()  && pullerState > 0){
-                    pullerState -= 1;
+                int current = robot.subsystem.puller.getPullerState();
+                int next = current;
+
+                if (gamepad1.dpadUpWasPressed() && current < Puller.STATE_STORE) {
+                    next = current + 1;
                 }
-                switch (pullerState){
-                    case 0:
-                        robot.subsystem.puller.down();
-                        break;
-                    case 1:
-                        robot.subsystem.puller.up();
-                        break;
-                    case 2:
-                        robot.subsystem.puller.store();
-                        break;
+                if (gamepad1.dpadDownWasPressed() && current > Puller.STATE_DOWN) {
+                    next = current - 1;
+                }
+
+                if (next != current) {
+                    robot.subsystem.puller.setState(next);
                 }
 
                 if (gamepad1.rightBumperWasPressed()){
@@ -72,10 +71,16 @@ public class Solo extends RobotLinearOpMode {
 
                 //Shooter控制
                 if (gamepad1.leftTriggerWasPressed()){
-                    robot.subsystem.shooter.setTargetVelocity(3000);
+                    if (ShooterOn) {
+                        robot.subsystem.shooter.stopShooter();
+                        ShooterOn = false;
+                    }
+                    else {
+                        robot.subsystem.shooter.setTargetVelocity(6000);
+                        ShooterOn = true;
+                    }
                 }
-                if (gamepad1.leftBumperWasPressed()) robot.subsystem.shooter.shootBall();
-                if (gamepad1.leftTriggerWasReleased()) robot.subsystem.shooter.stopShooter();
+                if (gamepad1.leftBumperWasPressed()) ;
 
                 //移动部分
                 robot.odo.update();

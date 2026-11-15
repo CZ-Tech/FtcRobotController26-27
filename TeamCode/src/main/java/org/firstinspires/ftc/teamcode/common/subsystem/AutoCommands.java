@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.common.subsystem;
 
+import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
 /**
@@ -63,6 +64,13 @@ public class AutoCommands {
     public void stopAll() {
         intaker.intakerArmStop();
         shooter.stopShooter();
+    }
+
+    public void shoot() {
+        shooter.schedule()
+                .setValvePos(0)
+                .waitMillis(1000)
+                .setValvePos(1);
     }
 
 //    public void intake_flower(double power , long time){
