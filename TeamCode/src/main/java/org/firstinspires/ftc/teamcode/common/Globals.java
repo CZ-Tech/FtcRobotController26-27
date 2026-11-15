@@ -10,6 +10,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.network.AutoConfig;
 import org.firstinspires.ftc.teamcode.common.vision.ColorRange;
 
+// adb connect 192.168.43.1:5555
+
 public class Globals {
     // ------------------------------------------------------------------
     // Debug / runtime

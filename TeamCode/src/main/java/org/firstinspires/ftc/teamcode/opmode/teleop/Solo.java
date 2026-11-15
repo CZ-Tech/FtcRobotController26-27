@@ -46,9 +46,9 @@ public class Solo extends RobotLinearOpMode {
             runWhileActive(() -> {
                 //Puller与Intake控制
                 int pullerState = robot.subsystem.puller.getPullerState();
-                if (gamepad1.dpad_up && pullerState < 3)
+                if (gamepad1.dpadUpWasPressed() && pullerState < 2)
                     pullerState += 1;
-                if (gamepad1.dpad_down && pullerState > 0){
+                if (gamepad1.dpadDownWasPressed()  && pullerState > 0){
                     pullerState -= 1;
                 }
                 switch (pullerState){

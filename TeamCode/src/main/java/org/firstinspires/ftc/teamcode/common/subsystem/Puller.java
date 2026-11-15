@@ -12,12 +12,12 @@ public class Puller implements ScheduleLifecycle{
 
     public static int pullerState = 2;
 
-    public static int leftDown = (549 - 500)/2500;
-    public static int leftUp = (1534 - 500)/2500;
-    public static int leftStore = (2038 - 500)/2500;
-    public static int rightDown = (2340 - 500)/2500;
-    public static int rightStore = (915 - 500)/2500;
-    public static int rightUp = (1345 - 500)/2500;
+    public static double leftDown = (549 - 500)/2500.0;
+    public static double leftUp = (1534 - 500)/2500.0;
+    public static double leftStore = (2038 - 500)/2500.0;
+    public static double rightDown = (2340 - 500)/2500.0;
+    public static double rightStore = (915 - 500)/2500.0;
+    public static double rightUp = (1345 - 500)/2500.0;
 
     //setPosition里面需要填写的计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500
     private int caculate(int degree){
