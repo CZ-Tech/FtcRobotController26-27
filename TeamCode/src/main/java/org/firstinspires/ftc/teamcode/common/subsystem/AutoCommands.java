@@ -66,13 +66,6 @@ public class AutoCommands {
         shooter.stopShooter();
     }
 
-    public void shoot() {
-        shooter.schedule()
-                .setValvePos(0)
-                .waitMillis(1000)
-                .setValvePos(1);
-    }
-
 //    public void intake_flower(double power , long time){
 //        puller.out();
 //        intaker.schedule().setIntakePower(power).waitMillis(500);

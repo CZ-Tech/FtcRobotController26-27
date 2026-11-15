@@ -56,14 +56,25 @@ public class Shooter implements ScheduleLifecycle{
         shooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
     }
 
+    /**
+     * 阀是瞬时动作，必须直接执行，不能进调度邮箱。
+     *
+     * <p>它和 {@link #setTargetVelocity(double)} 共用 shooter 的 capacity-1 邮箱，若也走调度，
+     * 同一圈里先后提交的指令会互相顶掉（先提交、还没变成 active 的那条既不执行也不触发
+     * {@link #onScheduleCancelled()}），而且提交阀门指令会取消正在跑的转速调度并把马达停掉。
+     * 因此这三个方法标 {@link DirectAction}：只在 OpMode/控制线程里当场写舵机。</p>
+     */
+    @DirectAction
     public void setValvePos(double n) {
         valveItself.setPosition(n);
     }
 
+    @DirectAction
     public void setValveOpen() {
         valveItself.setPosition(valveOpenDegree);
     }
 
+    @DirectAction
     public void setValveClose() {
         valveItself.setPosition(valveCloseDegree);
     }

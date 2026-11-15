@@ -80,8 +80,8 @@ public class Solo extends RobotLinearOpMode {
                         ShooterOn = true;
                     }
                 }
-                if (gamepad1.leftBumperWasPressed()) robot.subsystem.shooter.setValveOpen();
-                if (gamepad1.leftBumperWasReleased()) robot.subsystem.shooter.setValveClose();
+                if (gamepad1.dpadLeftWasPressed()) robot.subsystem.shooter.setValveOpen();
+                if (gamepad1.dpadRightWasPressed()) robot.subsystem.shooter.setValveClose();
 
                 //移动部分
                 robot.odo.update();
