@@ -51,7 +51,7 @@ public class Solo extends RobotLinearOpMode {
                 int current = robot.subsystem.puller.getPullerState();
                 int next = current;
 
-                if (gamepad1.dpadUpWasPressed() && current < Puller.STATE_STORE) {
+                if (gamepad1.dpadUpWasPressed() && current < Puller.STATE_UP) {
                     next = current + 1;
                 }
                 if (gamepad1.dpadDownWasPressed() && current > Puller.STATE_DOWN) {

@@ -2,8 +2,6 @@ package org.firstinspires.ftc.teamcode.common.network;
 
 import android.util.Log;
 
-import org.firstinspires.ftc.teamcode.common.subsystem.ScheduleApi;
-import org.firstinspires.ftc.teamcode.common.subsystem.Scheduler;
 import org.firstinspires.ftc.teamcode.common.subsystem.Subsystem;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
@@ -12,38 +10,26 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
- * Exposes subsystem schedule methods as remote commands.
+ * Exposes public instance {@link RemoteCommand} methods on a host's public instance
+ * fields, named {@code <field>.<method>}. Metadata is scanned without constructing a host.
+ * Only void methods with supported scalar parameters are published. Overloads must have
+ * disjoint accepted argument counts, including omitted trailing {@link Param} defaults.
  *
- * <p>Every public {@link Scheduler} field of the host (for {@link Subsystem}: each
- * subsystem) contributes one command per method of its generated schedule interface,
- * named {@code <field>.<method>}. Overloads of one method become one command that accepts
- * any of the overload argument counts; the published descriptor lists the longest one.
- * Trailing parameters with a {@link Param#defaultValue()} may be omitted by the caller
- * and are filled in at {@link #submit}; a method with {@code d} defaults is therefore
- * callable with {@code n-d} to {@code n} arguments, and that range must not overlap
- * another overload.</p>
- *
- * <p>The catalog is built from class metadata only, so it can be published before any
- * OpMode (and any {@code Robot}) exists. A binding instance is the {@link
- * CommandDispatcher.Sink} for one host: {@link #submit} builds a one-step schedule and
- * {@code execute()}s it, which only publishes it to the scheduler mailbox. Hardware is
- * touched later by {@code Subsystem.update()} on the OpMode thread.</p>
- *
- * <p>Latest-execute-wins applies per subsystem: a command replaces the schedule that
- * subsystem is currently running or has pending.</p>
+ * <p>{@link #submit} snapshots arguments and enqueues one independent invocation. The
+ * supplied queue must preserve FIFO order and run commands later on the hardware thread;
+ * submissions never replace earlier commands. A closed queue may reject with
+ * {@link IllegalStateException}, in which case submission returns false.</p>
  */
 public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
     private static final String TAG = "SubsystemCommands";
@@ -82,7 +68,7 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
     }
 
     /**
-     * One schedule-interface method together with its trailing default values. It is
+     * One annotated method together with its trailing default values. It is
      * reachable under every argument count from {@code parameterCount - defaults.length}
      * up to {@code parameterCount}.
      */
@@ -162,31 +148,17 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
         return value;
     }
 
-    /**
-     * Scans {@code hostType}'s public {@link Scheduler} fields. Methods with unsupported
-     * parameter types and commands with two overloads of the same argument count are
-     * skipped with a warning rather than published.
-     */
+    /** Scans public instance fields for annotated command methods. */
     public static Commands scan(Class<?> hostType) {
         Map<String, Command> commands = new LinkedHashMap<>();
         Set<String> conflicted = new HashSet<>();
 
         for (Field field : hostType.getFields()) {
             if (Modifier.isStatic(field.getModifiers())) continue;
-            if (!Scheduler.class.isAssignableFrom(field.getType())) continue;
-
-            Class<?> api = scheduleApiType(field.getGenericType());
-            if (api == null || !api.isInterface()) {
-                Log.w(TAG, "Cannot resolve schedule API of field " + field.getName());
-                continue;
-            }
-
-            for (Method method : api.getMethods()) {
-                if (method.getDeclaringClass() == ScheduleApi.class
-                        || method.getDeclaringClass() == Object.class
-                        || Modifier.isStatic(method.getModifiers())) {
-                    continue;
-                }
+            for (Method method : field.getType().getMethods()) {
+                if (!method.isAnnotationPresent(RemoteCommand.class)
+                        || Modifier.isStatic(method.getModifiers())
+                        || method.getReturnType() != void.class) continue;
                 String name = field.getName() + "." + method.getName();
                 if (!allParametersSupported(method)) {
                     Log.w(TAG, "Skipping " + name + ": unsupported parameter type");
@@ -255,14 +227,17 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
 
     private final Object host;
     private final Commands commands;
+    private final Consumer<Runnable> enqueue;
 
     public SubsystemCommandBinding(Subsystem subsystem) {
-        this(subsystem, subsystemCommands());
+        this(subsystem, subsystemCommands(), subsystem::enqueue);
     }
 
-    public SubsystemCommandBinding(Object host, Commands commands) {
+    public SubsystemCommandBinding(Object host, Commands commands, Consumer<Runnable> enqueue) {
         if (host == null) throw new IllegalArgumentException("host == null");
         if (commands == null) throw new IllegalArgumentException("commands == null");
+        if (enqueue == null) throw new IllegalArgumentException("enqueue == null");
+        this.enqueue = enqueue;
         this.host = host;
         this.commands = commands;
     }
@@ -275,15 +250,28 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
         Overload overload = command.byArity.get(values.length);
         if (overload == null) return false;
 
+        final Object[] captured = overload.complete(values);
+        final Object receiver;
         try {
-            Scheduler<?> scheduler = (Scheduler<?>) command.field.get(host);
-            Object draft = scheduler.schedule();
-            overload.method.invoke(draft, overload.complete(values));
-            ((ScheduleApi<?>) draft).execute();
+            receiver = command.field.get(host);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Cannot read command target: " + name, e);
+        }
+        try {
+            enqueue.accept(() -> invoke(name, overload.method, receiver, captured));
             return true;
+        } catch (IllegalStateException rejected) {
+            return false;
+        }
+    }
+
+    private static void invoke(String name, Method method, Object receiver, Object[] args) {
+        try {
+            method.invoke(receiver, args);
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+            if (cause instanceof Error) throw (Error) cause;
             throw new IllegalStateException("Command failed: " + name, cause);
         } catch (IllegalAccessException e) {
             throw new IllegalStateException("Cannot run command: " + name, e);
@@ -320,24 +308,4 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
         return null;
     }
 
-    /** Resolves {@code A} of a {@code Scheduler<A>} field type, including subclasses. */
-    private static Class<?> scheduleApiType(Type type) {
-        Map<Type, Type> seen = new HashMap<>();
-        Type current = type;
-        while (current != null && seen.put(current, current) == null) {
-            if (current instanceof ParameterizedType) {
-                ParameterizedType parameterized = (ParameterizedType) current;
-                if (parameterized.getRawType() == Scheduler.class) {
-                    Type arg = parameterized.getActualTypeArguments()[0];
-                    return arg instanceof Class ? (Class<?>) arg : null;
-                }
-                current = parameterized.getRawType();
-            } else if (current instanceof Class) {
-                current = ((Class<?>) current).getGenericSuperclass();
-            } else {
-                return null;
-            }
-        }
-        return null;
-    }
 }

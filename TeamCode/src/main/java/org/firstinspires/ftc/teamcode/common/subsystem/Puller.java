@@ -4,12 +4,13 @@ import androidx.annotation.NonNull;
 import com.qualcomm.robotcore.hardware.ServoImplEx;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.Robot;
+import org.firstinspires.ftc.teamcode.common.network.RemoteCommand;
+import org.firstinspires.ftc.teamcode.common.util.Param;
 
-@GenerateSchedule
-public class Puller implements ScheduleLifecycle {
+public class Puller implements SubsystemLifecycle {
     public static final int STATE_DOWN = 0;
-    public static final int STATE_UP = 1;
-    public static final int STATE_STORE = 2;
+    public static final int STATE_UP = 2;
+    public static final int STATE_STORE = 1;
 
     private static final double SERVO_MIN = 500.0;
     private static final double SERVO_MAX = 2500.0;
@@ -34,18 +35,21 @@ public class Puller implements ScheduleLifecycle {
         rightKickerServo = robot.hardwareMap.get(ServoImplEx.class, Globals.rightPullerServo);
     }
 
+    @RemoteCommand
     public void down() {
         leftKickerServo.setPosition(LEFT_DOWN);
         rightKickerServo.setPosition(RIGHT_DOWN);
         pullerState = STATE_DOWN;
     }
 
+    @RemoteCommand
     public void up() {
         leftKickerServo.setPosition(LEFT_UP);
         rightKickerServo.setPosition(RIGHT_UP);
         pullerState = STATE_UP;
     }
 
+    @RemoteCommand
     public void store() {
         leftKickerServo.setPosition(LEFT_STORE);
         rightKickerServo.setPosition(RIGHT_STORE);
@@ -56,7 +60,8 @@ public class Puller implements ScheduleLifecycle {
         return pullerState;
     }
 
-    public void setState(int state) {
+    @RemoteCommand
+    public void setState(@Param("state") int state) {
         switch (state) {
             case STATE_DOWN:
                 down();

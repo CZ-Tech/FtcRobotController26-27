@@ -165,6 +165,10 @@ public class Globals {
         /** Verbose per-tick spline log output; diagnostics only. */
         public static volatile boolean LOG_VERBOSE = false;
 
+        /** Spline drivetrain zero-power behavior; FLOAT coasts when motor power is zero. */
+        public static volatile DcMotor.ZeroPowerBehavior ZERO_POWER_BEHAVIOR =
+                DcMotor.ZeroPowerBehavior.FLOAT;
+
         // ------------------------------------------------------------------
         // Control
         // ------------------------------------------------------------------

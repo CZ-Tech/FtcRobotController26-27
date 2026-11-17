@@ -169,7 +169,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     public SplineTracker(Robot robot) {
         this.robot = robot;
         robot.odoDrivetrain.setRunMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        robot.odoDrivetrain.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        robot.odoDrivetrain.setZeroPowerBehavior(Globals.Auto.ZERO_POWER_BEHAVIOR);
         robot.odo.resetPosAndIMU();
     }
 
@@ -494,7 +494,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     }
 
     public SplineTracker stopMotor() {
-        robot.odoDrivetrain.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        robot.odoDrivetrain.setZeroPowerBehavior(Globals.Auto.ZERO_POWER_BEHAVIOR);
         robot.odoDrivetrain.stopMotor();
         odometryVelocityReady = false;
         return this;

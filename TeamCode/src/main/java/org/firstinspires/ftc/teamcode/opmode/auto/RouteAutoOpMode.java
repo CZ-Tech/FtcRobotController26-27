@@ -27,8 +27,8 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
  * route. There is intentionally no independent "execute path" control plane.</p>
  *
  * <p>Waypoint {@code command}/{@code commandParams} are dispatched through the same
- * subsystem schedules the remote command API uses. Dispatch is fail-fast: an unknown
- * command, wrong argument count, bad argument, rejected schedule or parse error stops
+ * FIFO control-thread queue the remote command API uses. Dispatch is fail-fast: an unknown
+ * command, wrong argument count, bad argument, rejected call or parse error stops
  * the route and the OpMode immediately instead of being skipped.</p>
  */
 public final class RouteAutoOpMode extends RobotLinearOpMode {
@@ -50,8 +50,8 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         RobotNetworkV2 network = RobotNetworkService.get();
         SplineTracker tracker = new SplineTracker(robot);
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
-        // Waypoint commands are executed on the OpMode thread through the same subsystem
-        // schedules the remote command API uses. The catalog is the one GET /commands serves.
+        // Waypoint commands use the same FIFO control-thread queue as remote commands.
+        // The catalog is the one GET /commands serves.
         RouteCommandDispatcher commands = new RouteCommandDispatcher(
                 new SubsystemCommandBinding(robot.subsystem)::submit,
                 network.commands);
@@ -111,12 +111,18 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                             Log.e(TAG, "Route '" + routeName + "' ended: "
                                     + loader.getLastResult());
                         }
-                        network.execution.publish(
-                                completed ? ExecutionStateStore.State.IDLE
-                                        : ExecutionStateStore.State.NOT_READY,
-                                0,
-                                routeName);
-                        requestOpModeStop();
+                        if (completed) {
+                            // A FIFO end marker lets all already accepted frame commands run,
+                            // even across the per-tick budget. Later remote calls cannot delay it.
+                            // Optional waits still need an explicit dwell frame in the route.
+                            robot.subsystem.enqueue(() -> {
+                                network.execution.publish(ExecutionStateStore.State.IDLE, 0, routeName);
+                                requestOpModeStop();
+                            });
+                        } else {
+                            network.execution.publish(ExecutionStateStore.State.NOT_READY, 0, routeName);
+                            requestOpModeStop();
+                        }
                         return;
                     }
                 }

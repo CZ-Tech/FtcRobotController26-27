@@ -41,9 +41,9 @@ public final class RouteCommandDispatcher {
         ARG_MISMATCH,
         /** A parameter cannot be converted to the declared type. */
         BAD_ARGS,
-        /** The sink refused the call (for example no matching schedule method). */
+        /** The sink refused the call (for example no matching remote method). */
         REJECTED,
-        /** The sink threw; the schedule was not built. */
+        /** The sink threw; the call was not queued. */
         THREW
     }
 

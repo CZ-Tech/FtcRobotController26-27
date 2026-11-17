@@ -10,6 +10,19 @@ To use this Android Studio project, you will need Android Studio Narwhal 3 Featu
 
 To program your robot in Blocks or OnBot Java, you do not need Android Studio.
 
+## Team robot architecture
+
+Team robot code lives in [TeamCode](TeamCode/src/main/java/org/firstinspires/ftc/teamcode/readme.md).
+Subsystems are ordinary Java objects; `SubsystemLifecycle` coordinates their lifecycle,
+and `ActionSequence` composes actions and non-blocking waits on the control loop.
+The old annotation-generated scheduling API and its annotation processor have been removed;
+subsystem calls no longer require generated wrappers or scheduler inheritance.
+
+Remote access is opt-in: explicitly mark ordinary object methods with `@RemoteCommand`
+and their parameters with `@Param`. Remote requests are handed off through the control-thread
+queue rather than operating robot hardware on network threads. See the TeamCode guide for
+migration principles; consult the implementation for current API signatures.
+
 ## Getting Started
 If you are new to robotics or new to the *FIRST* Tech Challenge, then you should consider reviewing the [FTC Blocks Tutorial](https://ftc-docs.firstinspires.org/programming_resources/blocks/Blocks-Tutorial.html) to get familiar with how to use the control system:
 

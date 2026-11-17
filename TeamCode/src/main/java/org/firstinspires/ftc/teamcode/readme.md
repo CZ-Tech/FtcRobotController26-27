@@ -3,8 +3,35 @@
 Welcome!
 
 This module, TeamCode, is the place where you will write/paste the code for your team's
-robot controller App. This module is currently empty (a clean slate) but the
-process for adding OpModes is straightforward.
+robot controller App. It contains this team's robot subsystems and OpModes;
+the SDK sample-copying instructions below remain useful when adding new OpModes.
+
+## Subsystems, action sequences, and remote commands
+
+- Write subsystems as ordinary Java objects with directly callable methods. Use
+  `SubsystemLifecycle.periodic()` and `onShutdown()` for lifecycle participation instead
+  of inheriting scheduling behavior. Call ordinary subsystem methods on the control thread.
+- Compose work with `ActionSequence.create().run(Runnable).waitMillis(long).waitUntil(BooleanSupplier)`
+  and start it with `robot.subsystem.start(sequence)`. Waits advance with the control loop
+  rather than block it. Multiple sequences may run concurrently; starting one does not
+  preempt another. Each sequence is single-use and cannot be edited after submission.
+  Waits start when reached; place them between callbacks, not inside hardware methods.
+  Callback failures propagate to the OpMode cleanup without automatically retrying the step.
+- `robot.subsystem.clearFlows()` explicitly discards running and queued sequences but does
+  not stop hardware automatically. `robot.subsystem.auto.stopAll()` clears flows and stops
+  shooting/intake. A plain hardware call does not cancel a pending flow: callers coordinate
+  their own writes, without automatic ownership or conflict arbitration.
+- The legacy `Scheduler`, `ScheduleApi`, `ScheduleLifecycle`, `GenerateSchedule`,
+  `ScheduledAction`, and `DirectAction` model is removed. Replace generated API wrappers
+  with direct calls to subsystem objects and explicit action sequences. No scheduling
+  annotation processor or generated scheduling source is required by the build.
+- Remote commands are explicitly opted in on ordinary object methods with `@RemoteCommand`;
+  keep `@Param` on exposed parameters. A public method is not automatically remote-accessible.
+  Requests pass through `subsystem.enqueue(Runnable)` and execute FIFO on the control
+  thread before invoking robot behavior; network threads must not access hardware directly.
+
+Keep subsystem state and hardware updates on the control thread. Stop/cancellation and
+lifecycle handling should follow the current implementation rather than the old generated API.
 
 ## Creating your own OpModes
 

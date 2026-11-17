@@ -11,7 +11,7 @@ import org.firstinspires.ftc.teamcode.common.network.RobotNetworkV2;
 import org.firstinspires.ftc.teamcode.common.telemetry.ApiTelemetry;
 import org.firstinspires.ftc.teamcode.common.telemetry.MultipleTelemetry;
 
-/** Common Robot initialization and cooperative subsystem scheduling for LinearOpModes. */
+/** Common initialization, subsystem updates and optional flows for LinearOpModes. */
 public abstract class RobotLinearOpMode extends LinearOpMode {
     private static final String TAG = "RobotLinearOpMode";
 
@@ -51,10 +51,11 @@ public abstract class RobotLinearOpMode extends LinearOpMode {
     /** OpMode-specific initialization, waitForStart and control flow. */
     protected abstract void runRobotOpMode() throws InterruptedException;
 
-    /** Run one application iteration and one subsystem scheduler tick until stopped. */
+    /** Run one application iteration and one subsystem control-loop tick until stopped. */
     protected final void runWhileActive(Runnable iteration) {
         while (opModeIsActive()) {
             iteration.run();
+            if (!opModeIsActive()) break;
             robot.subsystem.update();
             idle();
         }

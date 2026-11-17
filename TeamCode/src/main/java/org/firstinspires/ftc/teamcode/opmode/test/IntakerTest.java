@@ -7,7 +7,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 
-/** Field-centric drivetrain and intake scheduler test. */
+/** Field-centric drivetrain and intake test. */
 @TeleOp(name = "IntakerTest Test", group = "Test")
 public class IntakerTest extends RobotLinearOpMode {
 
@@ -48,9 +48,9 @@ public class IntakerTest extends RobotLinearOpMode {
                 telemetry.update();
 
                 if (gamepad1.leftBumperWasPressed()) {
-                    robot.subsystem.intaker.schedule().intakerIn(1).execute();
+                    robot.subsystem.intaker.intakerIn(1);
                 } else if (gamepad1.leftBumperWasReleased()) {
-                    robot.subsystem.intaker.schedule().intakerArmStop().execute();
+                    robot.subsystem.intaker.intakerArmStop();
                 }
             });
         } finally {
