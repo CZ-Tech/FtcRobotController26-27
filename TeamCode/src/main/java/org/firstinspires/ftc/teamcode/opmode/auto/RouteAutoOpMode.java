@@ -93,6 +93,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         try {
             runWhileActive(() -> {
                 if (loader.isRunning()) {
+                    loader.setFailurePolicy(Globals.Auto.FAILURE_POLICY);
                     loader.update();
                     SplineTrajectoryLoader.TrajectoryEvent event;
                     while ((event = loader.pollEvent()) != null) {

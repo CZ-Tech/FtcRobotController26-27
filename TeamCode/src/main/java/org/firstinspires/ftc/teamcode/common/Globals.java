@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.network.AutoConfig;
 import org.firstinspires.ftc.teamcode.common.vision.ColorRange;
 
@@ -234,6 +235,10 @@ public class Globals {
         public static volatile double STOP_CAPTURE_KP = 0.12;
         public static volatile double STOP_CAPTURE_MAX_POWER = 0.25;
         public static volatile double DEGENERATE_ARC_THRESHOLD = 0.05;
+
+        /** Movement failure policy, read each route tick; command failures always abort. */
+        public static volatile SplineTrajectoryLoader.FailurePolicy FAILURE_POLICY =
+                SplineTrajectoryLoader.FailurePolicy.STOP_PATH;
 
         /** <= 0 disables stall detection. A stall is NOT treated as arrival. */
         public static volatile double STALL_TIMEOUT_S = 2.0;
