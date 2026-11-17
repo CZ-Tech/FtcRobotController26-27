@@ -113,21 +113,16 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
         }
 
         CommandCatalog.Descriptor descriptor() {
-            int longest = -1;
-            for (int arity : byArity.keySet()) longest = Math.max(longest, arity);
-            Overload primary = byArity.get(longest);
-
-            List<List<String>> accepted = new ArrayList<>();
+            List<CommandCatalog.Signature> accepted = new ArrayList<>();
             for (Map.Entry<Integer, Overload> entry : byArity.entrySet()) {
-                List<String> types = parameterTypes(entry.getValue().method);
-                accepted.add(types.subList(0, entry.getKey()));
+                Overload overload = entry.getValue();
+                int count = entry.getKey();
+                accepted.add(new CommandCatalog.Signature(
+                        parameterNames(overload.method).subList(0, count),
+                        parameterTypes(overload.method).subList(0, count),
+                        overload.defaultTexts.subList(0, count)));
             }
-            return new CommandCatalog.Descriptor(
-                    name,
-                    parameterNames(primary.method),
-                    parameterTypes(primary.method),
-                    primary.defaultTexts,
-                    accepted);
+            return CommandCatalog.Descriptor.fromSignatures(name, accepted);
         }
     }
 

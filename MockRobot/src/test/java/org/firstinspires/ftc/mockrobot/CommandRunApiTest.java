@@ -2,6 +2,7 @@ package org.firstinspires.ftc.mockrobot;
 
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog;
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog.Descriptor;
+import org.firstinspires.ftc.teamcode.common.network.CommandCatalog.Signature;
 import org.firstinspires.ftc.teamcode.common.network.CommandDispatcher;
 import org.firstinspires.ftc.teamcode.common.network.ExecutionStateStore;
 import org.firstinspires.ftc.teamcode.common.network.OpModeLifecycleService;
@@ -9,6 +10,7 @@ import org.firstinspires.ftc.teamcode.common.network.RobotApiRouter;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
 import org.firstinspires.ftc.teamcode.common.network.SessionLease;
 import org.firstinspires.ftc.teamcode.common.network.http.RobotHttpServer;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.After;
 import org.junit.Before;
@@ -29,6 +31,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /** Drives POST /api/v2/commands/run through the real router over HTTP. */
@@ -240,18 +243,98 @@ public class CommandRunApiTest {
         assertError(post(run("shoot", "[\"3\",\"fast\"]")), 400, "invalid_command_args");
     }
 
+    private static void assertSignatureJson(JSONObject json, String names,
+                                            String types, String defaults) {
+        assertEquals(names, json.getJSONArray("paramNames").toString());
+        assertEquals(types, json.getJSONArray("paramTypes").toString());
+        assertEquals(defaults, json.getJSONArray("paramDefaults").toString());
+    }
+
     @Test
-    public void catalogListsParamDefaultsWithNullForRequired() throws Exception {
-        JSONObject root = request("GET", "/api/v2/commands", null, token).json();
+    public void catalogListsExplicitDefaultsSeparatelyFromRequiredAndOptionalParameters()
+            throws Exception {
+        Reply reply = request("GET", "/api/v2/commands", null, token);
+        assertEquals(reply.body, 200, reply.status);
+        JSONObject root = reply.json();
         JSONObject shoot = root.getJSONArray("commands").getJSONObject(0);
 
         assertEquals("shoot", shoot.getString("name"));
-        assertEquals("[\"count\",\"power\"]", shoot.getJSONArray("paramNames").toString());
-        assertEquals("[\"int\",\"double\"]", shoot.getJSONArray("paramTypes").toString());
-        assertEquals("[null,\"0.8\"]", shoot.getJSONArray("paramDefaults").toString());
+        assertSignatureJson(shoot, "[\"count\",\"power\"]", "[\"int\",\"double\"]", "[null,\"0.8\"]");
+        assertEquals("[1,2]", shoot.getJSONArray("acceptedArgCounts").toString());
+        assertTrue(shoot.getBoolean("hasUnifiedSignature"));
+        assertEquals(1, shoot.getInt("requiredParamCount"));
+        assertEquals("[true,false]", shoot.getJSONArray("paramRequired").toString());
+        JSONArray shootSignatures = shoot.getJSONArray("signatures");
+        assertEquals(2, shootSignatures.length());
+        assertSignatureJson(shootSignatures.getJSONObject(0), "[\"count\"]", "[\"int\"]", "[null]");
+        assertSignatureJson(shootSignatures.getJSONObject(1), "[\"count\",\"power\"]",
+                "[\"int\",\"double\"]", "[null,\"0.8\"]");
 
         JSONObject spin = root.getJSONArray("commands").getJSONObject(1);
-        assertEquals("[null]", spin.getJSONArray("paramDefaults").toString());
+        assertEquals("spin", spin.getString("name"));
+        assertSignatureJson(spin, "[\"power\"]", "[\"double\"]", "[null]");
+        assertEquals("[0,1]", spin.getJSONArray("acceptedArgCounts").toString());
+        assertTrue(spin.getBoolean("hasUnifiedSignature"));
+        assertEquals(0, spin.getInt("requiredParamCount"));
+        assertEquals("[false]", spin.getJSONArray("paramRequired").toString());
+        JSONArray spinSignatures = spin.getJSONArray("signatures");
+        assertEquals(2, spinSignatures.length());
+        assertSignatureJson(spinSignatures.getJSONObject(0), "[]", "[]", "[]");
+        assertSignatureJson(spinSignatures.getJSONObject(1), "[\"power\"]", "[\"double\"]", "[null]");
+        // Optional by overload does not imply a known annotation default.
+        assertTrue(spin.getJSONArray("paramDefaults").isNull(0));
+    }
+
+    @Test
+    public void nonUnifiedSignaturesAreFullyExposedAndStillRunByExactArityAndType()
+            throws Exception {
+        // Reverse input order also checks that HTTP metadata is sorted by arity.
+        catalog.publish(Collections.singletonList(Descriptor.fromSignatures("change", Arrays.asList(
+                new Signature(Arrays.asList("count", "power", "label"),
+                        Arrays.asList("int", "double", "String"), Arrays.asList(null, "0.8", "safe")),
+                new Signature(Collections.singletonList("enabled"),
+                        Collections.singletonList("boolean"), null)))));
+
+        Reply reply = request("GET", "/api/v2/commands", null, token);
+        assertEquals(reply.body, 200, reply.status);
+        JSONArray commands = reply.json().getJSONArray("commands");
+        assertEquals(1, commands.length());
+        JSONObject command = commands.getJSONObject(0);
+        assertEquals("change", command.getString("name"));
+        assertSignatureJson(command, "[\"count\",\"power\",\"label\"]",
+                "[\"int\",\"double\",\"String\"]", "[null,\"0.8\",\"safe\"]");
+        assertEquals("[1,3]", command.getJSONArray("acceptedArgCounts").toString());
+        assertFalse(command.getBoolean("hasUnifiedSignature"));
+        assertTrue(command.has("requiredParamCount"));
+        assertTrue(command.isNull("requiredParamCount"));
+        assertTrue(command.has("paramRequired"));
+        assertTrue(command.isNull("paramRequired"));
+        JSONArray signatures = command.getJSONArray("signatures");
+        assertEquals(2, signatures.length());
+        assertSignatureJson(signatures.getJSONObject(0), "[\"enabled\"]", "[\"boolean\"]", "[null]");
+        assertSignatureJson(signatures.getJSONObject(1), "[\"count\",\"power\",\"label\"]",
+                "[\"int\",\"double\",\"String\"]", "[null,\"0.8\",\"safe\"]");
+
+        running();
+        assertEquals(202, post(run("change", "[\"true\"]")).status);
+        assertEquals(202, post(run("change", "[\"3\",\"0.5\",\"manual\"]")).status);
+        assertEquals(2, calls.size());
+        assertEquals("change", calls.get(0).name);
+        assertEquals("change", calls.get(1).name);
+        assertArrayEquals(new Object[]{true}, calls.get(0).args);
+        assertArrayEquals(new Object[]{3, 0.5, "manual"}, calls.get(1).args);
+
+        assertError(post(run("change", "[]")), 400, "invalid_command_args");
+        assertError(post(run("change", "[\"3\",\"0.5\"]")), 400, "invalid_command_args");
+        assertError(post(run("change", "[\"3\",\"0.5\",\"manual\",\"extra\"]")),
+                400, "invalid_command_args");
+        // The one-arg overload is boolean, not the longest signature's int prefix.
+        assertError(post(run("change", "[\"3\"]")), 400, "invalid_command_args");
+        assertError(post(run("change", "[\"true\",\"0.5\",\"manual\"]")),
+                400, "invalid_command_args");
+        assertError(post(run("change", "[\"3\",\"fast\",\"manual\"]")),
+                400, "invalid_command_args");
+        assertEquals(2, calls.size());
     }
 
     @Test

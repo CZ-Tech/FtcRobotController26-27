@@ -33,6 +33,30 @@ the SDK sample-copying instructions below remain useful when adding new OpModes.
 Keep subsystem state and hardware updates on the control thread. Stop/cancellation and
 lifecycle handling should follow the current implementation rather than the old generated API.
 
+### Command signatures and optional parameters
+
+`GET /api/v2/commands` retains the legacy `paramNames`, `paramTypes`, and `paramDefaults`
+for the longest accepted signature. It also publishes:
+
+- `signatures`: every accepted invocation, sorted by argument count, each with its own
+  `paramNames`, `paramTypes`, and `paramDefaults`. This includes shorter invocations
+  allowed by overloads or omitted trailing `@Param(defaultValue = "...")` arguments.
+- `acceptedArgCounts`: the exact accepted argument counts, in ascending order.
+- `hasUnifiedSignature`: true only when counts are continuous and all shorter
+  signatures have the same parameter-name and type prefixes as the longest signature.
+- `requiredParamCount` and `paramRequired`: the minimum argument count and per-parameter
+  required flags for a unified signature. Both are JSON `null` when signatures cannot
+  be merged; clients should then offer the individual signatures instead.
+
+For example, `intakerIn()` plus `intakerIn(@Param("power") double power)` publishes
+`acceptedArgCounts: [0, 1]`, `requiredParamCount: 0`, and `paramRequired: [false]`.
+`paramDefaults: [null]` means the default value is unknown, **not** that power is required.
+Only explicit annotation defaults are published; never infer defaults from method bodies
+or replace omitted arguments with client-side values. Send only the supplied argument
+prefix so the binding selects the real overload (or supplies explicit annotation defaults).
+Signatures accepting only 1 and 3 arguments are not merged, and same-arity overload
+conflicts remain unpublished.
+
 ## Creating your own OpModes
 
 The easiest way to create your own OpMode is to copy a Sample OpMode and make it your own.

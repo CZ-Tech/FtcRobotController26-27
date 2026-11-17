@@ -60,6 +60,20 @@ public class SubsystemCommandBindingTest {
         @RemoteCommand public void badDefault(@Param(defaultValue = "x") int a) {}
     }
     public static class ShooterHost { public final Shooter shooter = new Shooter(); }
+    public static class OverloadShapes {
+        @RemoteCommand public void chain(@Param("count") int count) {}
+        @RemoteCommand public void chain(@Param("count") int count, @Param("power") double power) {}
+        @RemoteCommand public void chain(@Param("count") int count, @Param("power") double power,
+                                        @Param("fast") boolean fast) {}
+        @RemoteCommand public void gap(@Param("count") int count) {}
+        @RemoteCommand public void gap(@Param("count") int count, @Param("power") double power,
+                                      @Param("fast") boolean fast) {}
+        @RemoteCommand public void renamed(@Param("speed") double speed) {}
+        @RemoteCommand public void renamed(@Param("power") double power, @Param("time") long time) {}
+        @RemoteCommand public void typed(@Param("value") int value) {}
+        @RemoteCommand public void typed(@Param("value") String value, @Param("on") boolean on) {}
+    }
+    public static class ShapesHost { public final OverloadShapes shapes = new OverloadShapes(); }
     private static class Pending {
         final Queue<Runnable> queue = new ArrayDeque<>();
         boolean closed;
@@ -109,6 +123,41 @@ public class SubsystemCommandBindingTest {
         assertEquals(Collections.emptyList(), spin.typesForArity(0));
         assertEquals(Collections.singletonList("double"), spin.typesForArity(1));
         assertNull(spin.typesForArity(2));
+        assertEquals(Arrays.asList(0, 1), spin.acceptedArgCounts);
+        assertTrue(spin.hasUnifiedSignature);
+        assertEquals(Integer.valueOf(0), spin.requiredParamCount);
+        assertEquals(Collections.singletonList(false), spin.parameterRequired);
+        assertEquals(Collections.singletonList(null), spin.parameterDefaults);
+        assertEquals(Collections.emptyList(), spin.signatures.get(0).parameterNames);
+        assertEquals(Collections.singletonList("power"), spin.signatures.get(1).parameterNames);
+    }
+    @Test public void contiguousOverloadsInferRequiredPrefixAndOptionalTail() {
+        CommandCatalog.Descriptor chain = find(
+                SubsystemCommandBinding.scan(ShapesHost.class).descriptors(), "shapes.chain");
+        assertEquals(Arrays.asList(1, 2, 3), chain.acceptedArgCounts);
+        assertTrue(chain.hasUnifiedSignature);
+        assertEquals(Integer.valueOf(1), chain.requiredParamCount);
+        assertEquals(Arrays.asList(true, false, false), chain.parameterRequired);
+        assertEquals(Arrays.asList(null, null, null), chain.parameterDefaults);
+    }
+    @Test public void nonContiguousOrDifferentOverloadsKeepTheirOwnSignatures() {
+        List<CommandCatalog.Descriptor> descriptors = SubsystemCommandBinding.scan(ShapesHost.class).descriptors();
+        for (String name : Arrays.asList("shapes.gap", "shapes.renamed", "shapes.typed")) {
+            CommandCatalog.Descriptor command = find(descriptors, name);
+            assertFalse(name, command.hasUnifiedSignature);
+            assertNull(command.requiredParamCount);
+            assertNull(command.parameterRequired);
+            assertEquals(2, command.signatures.size());
+        }
+        CommandCatalog.Descriptor gap = find(descriptors, "shapes.gap");
+        assertEquals(Arrays.asList(1, 3), gap.acceptedArgCounts);
+        assertNull(gap.typesForArity(2));
+        CommandCatalog.Descriptor renamed = find(descriptors, "shapes.renamed");
+        assertEquals(Collections.singletonList("speed"), renamed.signatures.get(0).parameterNames);
+        assertEquals(Arrays.asList("power", "time"), renamed.signatures.get(1).parameterNames);
+        CommandCatalog.Descriptor typed = find(descriptors, "shapes.typed");
+        assertEquals(Collections.singletonList("int"), typed.typesForArity(1));
+        assertEquals(Arrays.asList("java.lang.String", "boolean"), typed.typesForArity(2));
     }
     @Test public void sameArityOverloadsAreNotPublished() {
         List<CommandCatalog.Descriptor> descriptors = SubsystemCommandBinding.scan(AmbiguousHost.class).descriptors();
@@ -172,6 +221,12 @@ public class SubsystemCommandBindingTest {
         assertEquals(Arrays.asList("int", "double"), shoot.typesForArity(2));
         assertEquals(Arrays.asList("int", "double", "boolean"), shoot.typesForArity(3));
         assertNull(shoot.typesForArity(4));
+        assertTrue(shoot.hasUnifiedSignature);
+        assertEquals(Integer.valueOf(1), shoot.requiredParamCount);
+        assertEquals(Arrays.asList(true, false, false), shoot.parameterRequired);
+        assertEquals(Arrays.asList(1, 2, 3), shoot.acceptedArgCounts);
+        assertEquals(Collections.singletonList("count"), shoot.signatures.get(0).parameterNames);
+        assertEquals(Arrays.asList(null, "0.8"), shoot.signatures.get(1).parameterDefaults);
     }
     @Test public void omittedArgumentsAreFilledFromDefaults() {
         ShooterHost host = new ShooterHost(); Pending pending = new Pending(); SubsystemCommandBinding binding = pending.bind(host);

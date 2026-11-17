@@ -41,7 +41,7 @@ public class HttpExchangeBrowserHeadersTest {
     private static void assertBrowserHeaders(String response) {
         assertTrue(response.contains("Access-Control-Allow-Origin: *\r\n"));
         assertTrue(response.contains(
-                "Access-Control-Allow-Methods: GET, PUT, POST, DELETE, OPTIONS\r\n"));
+                "Access-Control-Allow-Methods: GET, PUT, PATCH, POST, DELETE, OPTIONS\r\n"));
         assertTrue(response.contains(
                 "Access-Control-Allow-Headers: Content-Type, X-Az-Session, If-Match, Last-Event-ID\r\n"));
         assertTrue(response.contains(
