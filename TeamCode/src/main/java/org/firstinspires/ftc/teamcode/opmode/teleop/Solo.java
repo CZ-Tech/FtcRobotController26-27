@@ -47,6 +47,11 @@ public class Solo extends RobotLinearOpMode {
             //shooter保持开启
 
             runWhileActive(() -> {
+
+                if ((gamepad1.options && gamepad1.shareWasPressed()) || (gamepad1.optionsWasPressed() && gamepad1.share)){
+                    robot.odoDrivetrain.resetYaw();
+                }
+
                 //Puller与Intake控制
                 int current = robot.subsystem.puller.getPullerState();
                 int next = current;
@@ -90,7 +95,7 @@ public class Solo extends RobotLinearOpMode {
                 double lateral = gamepad1.left_stick_x;
                 double yaw = gamepad1.right_stick_x;
 
-                robot.odoDrivetrain.driveRobotFieldCentric(
+                robot.odoDrivetrain.driveRobotFieldCentricWithTeleOpHeadReset(
                         axial,
                         lateral,
                         yaw

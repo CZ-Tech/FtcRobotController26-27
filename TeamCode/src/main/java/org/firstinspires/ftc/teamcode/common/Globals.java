@@ -116,7 +116,7 @@ public class Globals {
     // 确认 odo 编码器方向，向前读数增加。
     public static GoBildaPinpointDriver.EncoderDirection odoXDirection = GoBildaPinpointDriver.EncoderDirection.REVERSED;
     // 确认 odo 编码器方向，向左读数增加。
-    public static GoBildaPinpointDriver.EncoderDirection odoYDirection = GoBildaPinpointDriver.EncoderDirection.FORWARD;
+    public static GoBildaPinpointDriver.EncoderDirection odoYDirection = GoBildaPinpointDriver.EncoderDirection.REVERSED;
 
     // ------------------------------------------------------------------
     // DECODE mechanism tuning
