@@ -8,15 +8,12 @@ import org.firstinspires.ftc.teamcode.common.network.RemoteCommand;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
 import java.util.Objects;
-import java.util.function.Consumer;
 
-/** Intake hardware. Methods are called directly on the control thread. */
+/** Intake hardware with ordinary synchronous methods; command entry owns the worker. */
 public class Intaker implements SubsystemLifecycle {
     private final DcMotorEx intakerItself;
-    private final Consumer<ActionSequence> startSequence;
 
-    public Intaker(Robot robot, Consumer<ActionSequence> startSequence) {
-        this.startSequence = Objects.requireNonNull(startSequence, "startSequence");
+    public Intaker(Robot robot) {
         intakerItself = Objects.requireNonNull(
                 robot.hardwareMap.get(DcMotorEx.class, Globals.intaker),
                 "Intaker motor is missing: " + Globals.intaker);
@@ -26,15 +23,22 @@ public class Intaker implements SubsystemLifecycle {
 
     @RemoteCommand
     public void setIntakePower(@Param("power") double power) {
+        CommandTasks.checkCancelled();
         intakerItself.setPower(power);
     }
 
-    /** Timed intake: explicit callbacks around a non-blocking wait. */
+    /** Blocks only its caller; direct aggregate calls naturally wait for completion. */
     @RemoteCommand
-    public void setIntakerPower(@Param("power") double power, @Param("time") long time) {
-        ActionSequence finish = ActionSequence.create().waitMillis(time).run(this::intakerArmStop);
+    public void setIntakerPower(@Param("power") double power, @Param("time") long time)
+            throws InterruptedException {
+        if (time < 0) throw new IllegalArgumentException("time must be non-negative");
         setIntakePower(power);
-        startSequence.accept(finish);
+        try {
+            Thread.sleep(time);
+        } finally {
+            // A cancelled worker must not race the lifecycle's final hardware stop.
+            if (!CommandTasks.isCancelled()) intakerArmStop();
+        }
     }
 
     @RemoteCommand

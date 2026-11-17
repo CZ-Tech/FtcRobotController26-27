@@ -24,7 +24,7 @@ public class Puller implements SubsystemLifecycle {
 
     private final ServoImplEx leftKickerServo;
     private final ServoImplEx rightKickerServo;
-    private int pullerState = STATE_STORE;
+    private volatile int pullerState = STATE_STORE;
 
     private double calculate(double degree) {
         return (degree - SERVO_MIN) / (SERVO_MAX - SERVO_MIN);
@@ -37,6 +37,7 @@ public class Puller implements SubsystemLifecycle {
 
     @RemoteCommand
     public void down() {
+        CommandTasks.checkCancelled();
         leftKickerServo.setPosition(LEFT_DOWN);
         rightKickerServo.setPosition(RIGHT_DOWN);
         pullerState = STATE_DOWN;
@@ -44,6 +45,7 @@ public class Puller implements SubsystemLifecycle {
 
     @RemoteCommand
     public void up() {
+        CommandTasks.checkCancelled();
         leftKickerServo.setPosition(LEFT_UP);
         rightKickerServo.setPosition(RIGHT_UP);
         pullerState = STATE_UP;
@@ -51,12 +53,14 @@ public class Puller implements SubsystemLifecycle {
 
     @RemoteCommand
     public void store() {
+        CommandTasks.checkCancelled();
         leftKickerServo.setPosition(LEFT_STORE);
         rightKickerServo.setPosition(RIGHT_STORE);
         pullerState = STATE_STORE;
     }
 
     public int getPullerState() {
+        CommandTasks.checkCancelled();
         return pullerState;
     }
 

@@ -7,10 +7,28 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>An OpMode attaches a {@link Sink} while it is able to run commands and detaches it
  * before shutting down. The sink is called on an HTTP worker thread, so it must only
- * publish data to the control thread (for example a subsystem schedule mailbox) and
- * never touch hardware.</p>
+ * hand off commands to managed task execution and never execute command bodies or touch
+ * hardware on the submitting thread. Task lifetime and cancellation belong to the
+ * attached owner.</p>
  */
 public final class CommandDispatcher {
+    /** Immutable call envelope; the argument array is shallow-copied at both boundaries. */
+    public static final class Call {
+        public final String name;
+        private final Object[] args;
+
+        public Call(String name, Object[] args) {
+            if (name == null) throw new IllegalArgumentException("name == null");
+            if (args == null) throw new IllegalArgumentException("args == null");
+            this.name = name;
+            this.args = args.clone();
+        }
+
+        public Object[] arguments() {
+            return args.clone();
+        }
+    }
+
     public interface Sink {
         /**
          * @param args already validated and converted per the catalog's parameter types

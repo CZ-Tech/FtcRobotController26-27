@@ -16,8 +16,8 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
  *
  * <p>{@link RobotLinearOpMode} already initializes every subsystem. The network may
  * start and stop this OpMode like any other; remote commands are only accepted between
- * START and STOP, and each one is a normal subsystem schedule executed by the
- * scheduler tick in {@code runWhileActive}.</p>
+ * START and STOP. Each command runs on a managed task thread independently of
+ * the drivetrain loop; worker failures propagate through {@code runWhileActive}.</p>
  */
 @TeleOp(name = "RemoteCommand Test", group = "Test")
 public class RemoteCommandTest extends RobotLinearOpMode {
@@ -68,7 +68,7 @@ public class RemoteCommandTest extends RobotLinearOpMode {
             });
         } finally {
             // Detach before RobotLinearOpMode shuts the subsystems down so no command is
-            // accepted into a scheduler that is about to be cancelled.
+            // accepted into a task owner that is about to be shut down.
             network.commandDispatcher.detach(binding);
             network.execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
             if (robot.odoDrivetrain != null) {

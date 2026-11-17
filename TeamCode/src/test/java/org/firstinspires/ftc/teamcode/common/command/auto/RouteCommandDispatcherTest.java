@@ -1,11 +1,14 @@
 package org.firstinspires.ftc.teamcode.common.command.auto;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog;
+import org.firstinspires.ftc.teamcode.common.network.CommandDispatcher;
 import org.junit.Test;
 
 import java.lang.reflect.Constructor;
@@ -125,6 +128,128 @@ public class RouteCommandDispatcherTest {
 
         assertEquals(RouteCommandDispatcher.Result.DISPATCHED, result);
         assertEquals(Double.valueOf(1), sink.args.get(0)[0]);
+    }
+
+    @Test
+    public void batchIsConvertedAndSubmittedExactlyOnceInDeclaredOrder() throws Exception {
+        RecordingBatchSink batch = new RecordingBatchSink();
+        RouteCommandDispatcher dispatcher = RouteCommandDispatcher.forBatch(batch, catalog);
+
+        assertEquals(RouteCommandDispatcher.Result.DISPATCHED, dispatcher.dispatch(event(4,
+                command(INTaker_IN, "0.25"), command(SHOOTER_STOP), command(INTaker_IN, "0.75"))));
+
+        assertEquals(1, batch.batches.size());
+        List<CommandDispatcher.Call> calls = batch.batches.get(0);
+        assertEquals(3, calls.size());
+        assertEquals(INTaker_IN, calls.get(0).name);
+        assertEquals(SHOOTER_STOP, calls.get(1).name);
+        assertEquals(INTaker_IN, calls.get(2).name);
+        assertArrayEquals(new Object[]{0.25}, calls.get(0).arguments());
+        assertArrayEquals(new Object[0], calls.get(1).arguments());
+        assertArrayEquals(new Object[]{0.75}, calls.get(2).arguments());
+        try {
+            calls.clear();
+            fail("submitted batch must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // The sink cannot reorder or discard calls in the submitted frame.
+        }
+    }
+
+    @Test
+    public void badLaterCommandNeverSubmitsEarlierCalls() throws Exception {
+        RecordingBatchSink batch = new RecordingBatchSink();
+        RouteCommandDispatcher dispatcher = RouteCommandDispatcher.forBatch(batch, catalog);
+
+        assertEquals(RouteCommandDispatcher.Result.UNKNOWN_COMMAND, dispatcher.dispatch(event(0,
+                command(SHOOTER_STOP), command("missing.command"))));
+        assertEquals(RouteCommandDispatcher.Result.ARG_MISMATCH, dispatcher.dispatch(event(1,
+                command(SHOOTER_STOP), command(INTaker_IN, "1", "2"))));
+        assertEquals(RouteCommandDispatcher.Result.BAD_ARGS, dispatcher.dispatch(event(2,
+                command(SHOOTER_STOP), command(INTaker_IN, "fast"))));
+        assertTrue(batch.batches.isEmpty());
+    }
+
+    @Test
+    public void legacySinkRejectsMultipleCommandsWithoutPartialSubmission() throws Exception {
+        assertEquals(RouteCommandDispatcher.Result.REJECTED, dispatcher().dispatch(event(3,
+                command(SHOOTER_STOP), command(INTaker_IN, "1"))));
+        assertTrue(sink.names.isEmpty());
+    }
+
+    @Test
+    public void legacySingleCommandUsesBatchEntryPointToo() throws Exception {
+        RecordingBatchSink batch = new RecordingBatchSink();
+        RouteCommandDispatcher dispatcher = RouteCommandDispatcher.forBatch(batch, catalog);
+        assertEquals(RouteCommandDispatcher.Result.DISPATCHED,
+                dispatcher.dispatch(event(9, INTaker_IN, Collections.singletonList("1"))));
+        assertEquals(1, batch.batches.size());
+        assertEquals(1, batch.batches.get(0).size());
+        assertArrayEquals(new Object[]{1.0}, batch.batches.get(0).get(0).arguments());
+    }
+
+    @Test
+    public void eachWaypointIsSubmittedIndependentlyWithoutCompletionHandshake() throws Exception {
+        RecordingBatchSink batch = new RecordingBatchSink();
+        RouteCommandDispatcher dispatcher = RouteCommandDispatcher.forBatch(batch, catalog);
+        assertEquals(RouteCommandDispatcher.Result.DISPATCHED,
+                dispatcher.dispatch(event(0, command(SHOOTER_STOP))));
+        assertEquals(RouteCommandDispatcher.Result.DISPATCHED,
+                dispatcher.dispatch(event(1, command(INTaker_IN, "1"))));
+        assertEquals(2, batch.batches.size());
+    }
+
+    @Test
+    public void emptyBatchIsIgnoredAndRejectionAndExceptionAreFatal() throws Exception {
+        RecordingBatchSink batch = new RecordingBatchSink();
+        RouteCommandDispatcher dispatcher = RouteCommandDispatcher.forBatch(batch, catalog);
+        assertEquals(RouteCommandDispatcher.Result.IGNORED, dispatcher.dispatch(event(0)));
+        assertTrue(batch.batches.isEmpty());
+        batch.accept = false;
+        assertEquals(RouteCommandDispatcher.Result.REJECTED,
+                dispatcher.dispatch(event(1, command(SHOOTER_STOP))));
+        batch.failure = new IllegalStateException("boom");
+        assertEquals(RouteCommandDispatcher.Result.THREW,
+                dispatcher.dispatch(event(2, command(SHOOTER_STOP))));
+        assertTrue(RouteCommandDispatcher.fatal(RouteCommandDispatcher.Result.REJECTED));
+        assertTrue(RouteCommandDispatcher.fatal(RouteCommandDispatcher.Result.THREW));
+    }
+
+    @Test
+    public void callTakesAndReturnsDefensiveArgumentSnapshots() {
+        Object[] args = new Object[]{"original", 1};
+        CommandDispatcher.Call call = new CommandDispatcher.Call("auto.example", args);
+        args[0] = "changed";
+        Object[] first = call.arguments();
+        assertEquals("original", first[0]);
+        first[1] = 2;
+        assertArrayEquals(new Object[]{"original", 1}, call.arguments());
+    }
+
+    private static SplineTrajectoryLoader.TrajectoryCommand command(String name, String... params) {
+        return new SplineTrajectoryLoader.TrajectoryCommand(name, Arrays.asList(params));
+    }
+
+    private static SplineTrajectoryLoader.TrajectoryEvent event(
+            int frame, SplineTrajectoryLoader.TrajectoryCommand... commands) throws Exception {
+        Constructor<SplineTrajectoryLoader.TrajectoryEvent> constructor =
+                SplineTrajectoryLoader.TrajectoryEvent.class.getDeclaredConstructor(
+                        int.class, String.class, String.class, List.class, List.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(frame, null, null, Collections.emptyList(),
+                Arrays.asList(commands));
+    }
+
+    private static final class RecordingBatchSink implements RouteCommandDispatcher.BatchSink {
+        final List<List<CommandDispatcher.Call>> batches = new ArrayList<>();
+        boolean accept = true;
+        RuntimeException failure;
+
+        @Override
+        public boolean submit(List<CommandDispatcher.Call> calls) {
+            batches.add(calls);
+            if (failure != null) throw failure;
+            return accept;
+        }
     }
 
     private static CommandCatalog catalog(CommandCatalog.Descriptor... descriptors) {

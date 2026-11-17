@@ -5,6 +5,7 @@ import org.firstinspires.ftc.teamcode.common.network.http.HttpHandler;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpRequest;
 import org.firstinspires.ftc.teamcode.common.network.http.HttpResponse;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -351,8 +352,17 @@ public final class RobotApiRouter implements HttpHandler {
                         428, "{\"error\":\"if_match_required\"}"));
                 return;
             }
+            String routeJson = request.bodyUtf8();
+            try {
+                RouteJson.frames(routeJson);
+            } catch (JSONException invalid) {
+                exchange.send(HttpResponse.json(400,
+                        "{\"error\":\"invalid_route_json\",\"message\":\""
+                                + JsonUtil.escape(invalid.getMessage()) + "\"}"));
+                return;
+            }
             RouteRepository.PutResult result =
-                    routeStore.put(name, request.bodyUtf8(), expected);
+                    routeStore.put(name, routeJson, expected);
             if (result.preconditionFailed) {
                 long actual = result.entry == null ? 0 : result.entry.revision;
                 exchange.send(HttpResponse.json(

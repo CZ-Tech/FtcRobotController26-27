@@ -5,6 +5,7 @@ import android.util.Log;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
+import org.firstinspires.ftc.teamcode.common.network.RouteJson;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -71,25 +72,53 @@ public final class SplineTrajectoryLoader {
         SplineTracker.SegmentResult getLastResult();
     }
 
+    /** Immutable, untyped command data; catalog resolution belongs to the dispatcher. */
+    public static final class TrajectoryCommand {
+        public final String name;
+        public final List<String> params;
+
+        public TrajectoryCommand(String name, List<String> params) {
+            if (name == null || name.trim().isEmpty()) {
+                throw new IllegalArgumentException("command name is empty");
+            }
+            this.name = name.trim();
+            this.params = Collections.unmodifiableList(new ArrayList<>(params));
+        }
+    }
+
     /**
-     * Pure-data event emitted at a trajectory waypoint. The Loader never executes the
-     * command/marker in the new API; the OpMode decides what to do with it.
+     * Pure-data event emitted at a trajectory waypoint. Commands at one waypoint form
+     * one ordered task; different waypoints may run concurrently. The loader only emits
+     * data and never waits for command completion or manages command task lifetime.
      */
     public static final class TrajectoryEvent {
         public final int frameIndex;
         public final String marker;
+        /** Legacy single-command fields; new commands are exposed through {@link #commands}. */
         public final String command;
         public final List<String> commandParams;
+        public final List<TrajectoryCommand> commands;
 
         private TrajectoryEvent(int frameIndex,
                                 String marker,
                                 String command,
                                 List<String> commandParams) {
+            this(frameIndex, marker, command, commandParams,
+                    command == null || command.trim().isEmpty()
+                            ? Collections.<TrajectoryCommand>emptyList()
+                            : Collections.singletonList(new TrajectoryCommand(command, commandParams)));
+        }
+
+        private TrajectoryEvent(int frameIndex,
+                                String marker,
+                                String command,
+                                List<String> commandParams,
+                                List<TrajectoryCommand> commands) {
             this.frameIndex = frameIndex;
             this.marker = marker;
             this.command = command;
-            this.commandParams = Collections.unmodifiableList(
-                    new ArrayList<>(commandParams));
+            this.commandParams = Collections.unmodifiableList(new ArrayList<>(commandParams));
+            this.commands = Collections.unmodifiableList(new ArrayList<>(commands));
         }
 
         public boolean hasMarker() {
@@ -97,7 +126,7 @@ public final class SplineTrajectoryLoader {
         }
 
         public boolean hasCommand() {
-            return command != null && !command.isEmpty();
+            return !commands.isEmpty();
         }
 
         @Override
@@ -105,7 +134,8 @@ public final class SplineTrajectoryLoader {
             return "TrajectoryEvent{frame=" + frameIndex
                     + ", marker='" + marker + '\''
                     + ", command='" + command + '\''
-                    + ", params=" + commandParams + "}";
+                    + ", params=" + commandParams
+                    + ", commands=" + commands.size() + "}";
         }
     }
 
@@ -160,6 +190,7 @@ public final class SplineTrajectoryLoader {
         final String marker;
         final String command;
         final List<String> commandParams;
+        final List<TrajectoryCommand> commands;
 
         private Step(StepType type,
                      int frameIndex,
@@ -167,7 +198,8 @@ public final class SplineTrajectoryLoader {
                      SplineTracker.PathPoint point,
                      String marker,
                      String command,
-                     List<String> commandParams) {
+                     List<String> commandParams,
+                     List<TrajectoryCommand> commands) {
             this.type = type;
             this.frameIndex = frameIndex;
             this.waitSeconds = waitSeconds;
@@ -175,13 +207,15 @@ public final class SplineTrajectoryLoader {
             this.marker = marker;
             this.command = command;
             this.commandParams = commandParams;
+            this.commands = commands;
         }
 
         static Step waitFrame(int frameIndex,
                               double seconds,
                               String marker,
                               String command,
-                              List<String> commandParams) {
+                              List<String> commandParams,
+                              List<TrajectoryCommand> commands) {
             return new Step(
                     StepType.WAIT,
                     frameIndex,
@@ -189,14 +223,16 @@ public final class SplineTrajectoryLoader {
                     null,
                     marker,
                     command,
-                    commandParams);
+                    commandParams,
+                    commands);
         }
 
         static Step moveFrame(int frameIndex,
                               SplineTracker.PathPoint point,
                               String marker,
                               String command,
-                              List<String> commandParams) {
+                              List<String> commandParams,
+                              List<TrajectoryCommand> commands) {
             return new Step(
                     StepType.MOVE,
                     frameIndex,
@@ -204,15 +240,15 @@ public final class SplineTrajectoryLoader {
                     point,
                     marker,
                     command,
-                    commandParams);
+                    commandParams,
+                    commands);
         }
 
         TrajectoryEvent event() {
-            if ((marker == null || marker.isEmpty())
-                    && (command == null || command.isEmpty())) {
+            if ((marker == null || marker.isEmpty()) && commands.isEmpty()) {
                 return null;
             }
-            return new TrajectoryEvent(frameIndex, marker, command, commandParams);
+            return new TrajectoryEvent(frameIndex, marker, command, commandParams, commands);
         }
     }
 
@@ -501,7 +537,7 @@ public final class SplineTrajectoryLoader {
 
         int parsingFrame = -1;
         try {
-            JSONArray jsonArray = new JSONArray(jsonString);
+            JSONArray jsonArray = RouteJson.frames(jsonString);
             List<Step> steps = new ArrayList<>();
 
             for (int i = 0; i < jsonArray.length(); i++) {
@@ -511,6 +547,7 @@ public final class SplineTrajectoryLoader {
                 String marker = normalizeNullable(obj.optString("marker", null));
                 String command = normalizeNullable(obj.optString("command", null));
                 List<String> commandParams = parseCommandParams(obj.optJSONArray("commandParams"));
+                List<TrajectoryCommand> commands = parseCommands(obj, command, commandParams);
 
                 if (obj.has("wait")) {
                     steps.add(Step.waitFrame(
@@ -518,7 +555,8 @@ public final class SplineTrajectoryLoader {
                             Math.max(0, obj.getDouble("wait")),
                             marker,
                             command,
-                            commandParams));
+                            commandParams,
+                            commands));
                     continue;
                 }
 
@@ -562,7 +600,8 @@ public final class SplineTrajectoryLoader {
                                 maxPower, maxSpeed, endSpeed, brakeZoneIn, brakeForwardPower),
                         marker,
                         command,
-                        commandParams));
+                        commandParams,
+                        commands));
 
                 double delayAfterArrive = obj.optDouble("delayAfterArrive", 0);
                 if (delayAfterArrive > 0) {
@@ -572,7 +611,8 @@ public final class SplineTrajectoryLoader {
                                 delayAfterArrive,
                                 null,
                                 null,
-                                Collections.emptyList()));
+                                Collections.<String>emptyList(),
+                                Collections.<TrajectoryCommand>emptyList()));
                     } else {
                         Log.w("SplineAuto", "waypoint[" + i + "]: delayAfterArrive="
                                 + delayAfterArrive + "s ignored; use {\"wait\": n} or enable "
@@ -598,6 +638,53 @@ public final class SplineTrajectoryLoader {
                             null,
                             e.getMessage()));
         }
+    }
+
+    private static List<TrajectoryCommand> parseCommands(
+            JSONObject obj, String command, List<String> commandParams) throws JSONException {
+        List<TrajectoryCommand> result = new ArrayList<>();
+        if (obj.has("commands")) {
+            Object raw = obj.get("commands");
+            if (!(raw instanceof JSONArray)) {
+                throw new JSONException("commands must be an array");
+            }
+            JSONArray array = (JSONArray) raw;
+            for (int i = 0; i < array.length(); i++) {
+                Object entry = array.get(i);
+                if (!(entry instanceof JSONObject)) {
+                    throw new JSONException("commands[" + i + "] must be an object");
+                }
+                JSONObject item = (JSONObject) entry;
+                Object name = item.opt("name");
+                if (!(name instanceof String) || ((String) name).trim().isEmpty()) {
+                    throw new JSONException("commands[" + i + "].name must be a non-empty string");
+                }
+                List<String> params = new ArrayList<>();
+                if (item.has("params")) {
+                    Object rawParams = item.get("params");
+                    if (!(rawParams instanceof JSONArray)) {
+                        throw new JSONException("commands[" + i + "].params must be an array");
+                    }
+                    JSONArray values = (JSONArray) rawParams;
+                    for (int j = 0; j < values.length(); j++) {
+                        Object value = values.get(j);
+                        if (!(value instanceof String)) {
+                            throw new JSONException("commands[" + i + "].params[" + j
+                                    + "] must be a string");
+                        }
+                        params.add((String) value);
+                    }
+                }
+                result.add(new TrajectoryCommand((String) name, params));
+            }
+        }
+        if (command != null && !command.trim().isEmpty()) {
+            if (!result.isEmpty()) {
+                throw new JSONException("command and commands cannot both be non-empty");
+            }
+            result.add(new TrajectoryCommand(command, commandParams));
+        }
+        return Collections.unmodifiableList(result);
     }
 
     private static List<String> parseCommandParams(JSONArray array) {

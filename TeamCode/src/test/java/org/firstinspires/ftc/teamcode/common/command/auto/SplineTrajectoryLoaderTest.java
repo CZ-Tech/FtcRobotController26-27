@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.junit.After;
@@ -14,7 +15,10 @@ import org.junit.Test;
 
 import java.lang.reflect.Constructor;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Queue;
 
 public class SplineTrajectoryLoaderTest {
@@ -71,6 +75,62 @@ public class SplineTrajectoryLoaderTest {
         assertTrue(loader.isRunning());
         assertEquals(0, driver.totalCalls());
         assertEquals(0, loader.getStepIndex());
+    }
+
+    @Test
+    public void versionTwoEnvelopeArmsTheSameMovementPlan() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING,
+                loader.start("{\"version\":2,\"frames\":" + twoMovePath() + "}").status);
+        assertEquals(0, driver.totalCalls());
+        loader.update();
+        loader.update();
+        assertEquals(1, driver.beginCalls);
+        assertEquals(1, driver.startMoveCalls);
+    }
+
+    @Test
+    public void versionTwoEnvelopeRetainsOrderedWaypointCommands() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start("{\"version\":2,\"frames\":[{\"x\":0,\"y\":0,\"commands\":["
+                + "{\"name\":\"auto.waitMillis\",\"params\":[\"500\"]},"
+                + "{\"name\":\"intaker.intakerArmStop\",\"params\":[]}]}]}");
+        loader.update();
+        SplineTrajectoryLoader.TrajectoryEvent event = loader.pollEvent();
+        assertNotNull(event);
+        assertEquals(2, event.commands.size());
+        assertEquals("auto.waitMillis", event.commands.get(0).name);
+        assertEquals(Collections.singletonList("500"), event.commands.get(0).params);
+        assertEquals("intaker.intakerArmStop", event.commands.get(1).name);
+        loader.update();
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.COMPLETED, loader.getStatus());
+    }
+
+    @Test
+    public void unknownAndMalformedVersionsFailBeforeTouchingMotion() {
+        String[] invalid = {
+                "{\"version\":1,\"frames\":[]}", "{\"version\":3,\"frames\":[]}",
+                "{\"version\":\"2\",\"frames\":[]}", "{\"version\":2,\"frames\":{}}",
+                "{\"frames\":[]}", "{\"version\":2}", "[] []"
+        };
+        for (String json : invalid) {
+            FakeMotionDriver driver = new FakeMotionDriver();
+            SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+            assertEquals(json, SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR,
+                    loader.start(json).status);
+            assertEquals(0, driver.totalCalls());
+        }
+    }
+
+    @Test
+    public void versionTwoEmptyFramesRemainEmptyWithoutMotion() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.EMPTY,
+                loader.start("{\"version\":2,\"frames\":[]}").status);
+        assertEquals(0, driver.totalCalls());
     }
 
     @Test
@@ -305,6 +365,10 @@ public class SplineTrajectoryLoaderTest {
         assertEquals("shoot", event.marker);
         assertEquals("setMode", event.command);
         assertEquals(Arrays.asList("fast", "3"), event.commandParams);
+        assertTrue(event.hasCommand());
+        assertEquals(1, event.commands.size());
+        assertEquals("setMode", event.commands.get(0).name);
+        assertEquals(Arrays.asList("fast", "3"), event.commands.get(0).params);
         assertNull(loader.pollEvent());
 
         loader.update();
@@ -369,6 +433,157 @@ public class SplineTrajectoryLoaderTest {
         SplineTrajectoryLoader.ExecutionResult result = loader.update();
 
         assertSame(arrived, result.segmentResult);
+    }
+
+    @Test
+    public void commandsPreserveOrderAndExposeImmutableData() {
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(new FakeMotionDriver());
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING, loader.start(
+                "[{\"x\":0,\"y\":0,\"commands\":["
+                        + "{\"name\":\"auto.prepare\",\"params\":[\"fast\",\"3\"]},"
+                        + "{\"name\":\"auto.shoot\"}]}]").status);
+        loader.update();
+        SplineTrajectoryLoader.TrajectoryEvent event = loader.pollEvent();
+        assertNotNull(event);
+        assertTrue(event.hasCommand());
+        assertNull(event.command);
+        assertTrue(event.commandParams.isEmpty());
+        assertEquals(2, event.commands.size());
+        assertEquals("auto.prepare", event.commands.get(0).name);
+        assertEquals(Arrays.asList("fast", "3"), event.commands.get(0).params);
+        assertEquals("auto.shoot", event.commands.get(1).name);
+        assertTrue(event.commands.get(1).params.isEmpty());
+        try {
+            event.commands.clear();
+            fail("event commands must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // Expected.
+        }
+        try {
+            event.commands.get(0).params.add("extra");
+            fail("command parameters must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // Expected.
+        }
+        loader.update();
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.COMPLETED, loader.getStatus());
+    }
+
+    @Test
+    public void trajectoryCommandSnapshotsCallerParameters() {
+        List<String> params = new ArrayList<>(Collections.singletonList("original"));
+        SplineTrajectoryLoader.TrajectoryCommand command =
+                new SplineTrajectoryLoader.TrajectoryCommand("auto.example", params);
+        params.set(0, "changed");
+        assertEquals(Collections.singletonList("original"), command.params);
+    }
+
+    @Test
+    public void emptyCommandsAllowLegacyCommandAndEmptyLegacyAllowsCommands() {
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(new FakeMotionDriver());
+        loader.start("[{\"x\":0,\"y\":0,\"command\":\"auto.old\","
+                + "\"commandParams\":[\"1\"],\"commands\":[]}]");
+        loader.update();
+        SplineTrajectoryLoader.TrajectoryEvent legacy = loader.pollEvent();
+        assertEquals("auto.old", legacy.command);
+        assertEquals("auto.old", legacy.commands.get(0).name);
+        assertEquals(Collections.singletonList("1"), legacy.commands.get(0).params);
+
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.RUNNING, loader.start(
+                "[{\"x\":0,\"y\":0,\"command\":\"  \","
+                        + "\"commands\":[{\"name\":\"auto.new\",\"params\":[]}]}]").status);
+        loader.update();
+        assertEquals("auto.new", loader.pollEvent().commands.get(0).name);
+    }
+
+    @Test
+    public void emptyCommandsDoNotCreateAnEvent() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start("[{\"x\":0,\"y\":0,\"commands\":[]}]");
+        loader.update();
+        assertNull(loader.pollEvent());
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.COMPLETED, loader.getStatus());
+    }
+
+    @Test
+    public void simultaneousNonEmptyOldAndNewCommandsAreParseError() {
+        assertCommandParseError("\"command\":\"auto.old\","
+                + "\"commands\":[{\"name\":\"auto.new\"}]");
+    }
+
+    @Test
+    public void malformedCommandsAreStrictParseErrorsBeforeAnyMotion() {
+        String[] malformed = {
+                "null", "{}", "\"auto.shoot\"", "1", "true",
+                "[null]", "[1]", "[\"auto.shoot\"]", "[[]]", "[{}]",
+                "[{\"name\":null}]", "[{\"name\":3}]", "[{\"name\":true}]",
+                "[{\"name\":{}}]", "[{\"name\":[]}]", "[{\"name\":\"\"}]",
+                "[{\"name\":\"  \"}]", "[{\"name\":\"auto.shoot\",\"params\":null}]",
+                "[{\"name\":\"auto.shoot\",\"params\":{}}]",
+                "[{\"name\":\"auto.shoot\",\"params\":\"1\"}]",
+                "[{\"name\":\"auto.shoot\",\"params\":[null]}]",
+                "[{\"name\":\"auto.shoot\",\"params\":[1]}]",
+                "[{\"name\":\"auto.shoot\",\"params\":[true]}]",
+                "[{\"name\":\"auto.shoot\",\"params\":[{}]}]",
+                "[{\"name\":\"auto.shoot\",\"params\":[[]]}]",
+                "[{\"name\":\"auto.valid\"},{\"name\":\"auto.bad\",\"params\":[1]}]"
+        };
+        for (String commands : malformed) {
+            assertCommandParseError("\"commands\":" + commands);
+        }
+    }
+
+    @Test
+    public void versionedWrapperIsNotAccepted() {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        assertEquals(SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR, loader.start(
+                "{\"schemaVersion\":1,\"waypoints\":[{\"x\":0,\"y\":0}]}").status);
+        assertEquals(0, driver.totalCalls());
+    }
+
+    @Test
+    public void commandsOnIntermediateMoveOnlyEmitEventAndDoNotStopPath() throws Exception {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        driver.results.add(segment(SplineTracker.SegmentStatus.ARRIVED));
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        loader.start("[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0,"
+                + "\"commands\":[{\"name\":\"auto.first\"},{\"name\":\"auto.second\"}]},"
+                + "{\"x\":2,\"y\":0}]");
+        loader.update(); // begin
+        assertNull(loader.pollEvent());
+        loader.update(); // start move
+        assertNull(loader.pollEvent());
+        loader.update(); // arrival emits the entire waypoint
+        assertEquals(0, driver.cancelCalls);
+        SplineTrajectoryLoader.TrajectoryEvent event = loader.pollEvent();
+        assertEquals(1, event.frameIndex);
+        assertEquals(2, event.commands.size());
+        loader.update(); // no command-completion handshake is required
+        assertEquals(2, driver.startMoveCalls);
+        assertEquals(0, driver.cancelCalls);
+    }
+
+    @Test
+    public void waitFrameCommandsKeepOriginalCompletionTrigger() {
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(new FakeMotionDriver());
+        loader.start("[{\"wait\":0,\"commands\":[{\"name\":\"auto.afterWait\"}]}]");
+        loader.update();
+        assertNull(loader.pollEvent());
+        loader.update();
+        assertEquals("auto.afterWait", loader.pollEvent().commands.get(0).name);
+    }
+
+    private static void assertCommandParseError(String fields) {
+        FakeMotionDriver driver = new FakeMotionDriver();
+        SplineTrajectoryLoader loader = new SplineTrajectoryLoader(driver);
+        SplineTrajectoryLoader.ExecutionResult result = loader.start(
+                "[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0," + fields + "}]");
+        assertEquals(fields, SplineTrajectoryLoader.ExecutionStatus.PARSE_ERROR, result.status);
+        assertEquals(1, result.frameIndex);
+        assertFalse(loader.isRunning());
+        assertEquals(0, driver.totalCalls());
     }
 
     private static String twoMovePath() {

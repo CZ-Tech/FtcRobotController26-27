@@ -51,7 +51,7 @@ final class SubsystemLoop {
         }
     }
 
-    void update() {
+    synchronized void update() {
         checkThread();
         for (int i = 0; i < MAX_COMMANDS_PER_UPDATE && keepRunning.getAsBoolean(); i++) {
             Runnable action;
@@ -81,8 +81,7 @@ final class SubsystemLoop {
     }
 
     /** Explicitly stop active and queued flows, not hardware or ordinary queued calls. */
-    void clearFlows() {
-        checkThread();
+    synchronized void clearFlows() {
         synchronized (incoming) {
             incoming.removeIf(action -> action instanceof StartFlow);
         }
@@ -98,7 +97,7 @@ final class SubsystemLoop {
     }
 
     /** Close ingress before stopping all devices, even if one shutdown hook fails. */
-    void shutdown() {
+    synchronized void shutdown() {
         checkThread();
         synchronized (incoming) {
             if (closed) return;
@@ -117,6 +116,10 @@ final class SubsystemLoop {
         }
         if (failure instanceof RuntimeException) throw (RuntimeException) failure;
         if (failure instanceof Error) throw (Error) failure;
+    }
+
+    synchronized boolean isIdle() {
+        synchronized (incoming) { return incoming.isEmpty() && flows.isEmpty(); }
     }
 
     private void checkOpen() {

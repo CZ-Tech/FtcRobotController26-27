@@ -3,6 +3,8 @@ package org.firstinspires.ftc.teamcode.common.network;
 import android.util.Log;
 
 import org.firstinspires.ftc.teamcode.common.subsystem.Subsystem;
+import org.firstinspires.ftc.teamcode.common.subsystem.CommandTasks;
+import java.util.concurrent.CancellationException;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
 import java.lang.annotation.Annotation;
@@ -26,10 +28,11 @@ import java.util.function.Consumer;
  * Only void methods with supported scalar parameters are published. Overloads must have
  * disjoint accepted argument counts, including omitted trailing {@link Param} defaults.
  *
- * <p>{@link #submit} snapshots arguments and enqueues one independent invocation. The
- * supplied queue must preserve FIFO order and run commands later on the hardware thread;
- * submissions never replace earlier commands. A closed queue may reject with
- * {@link IllegalStateException}, in which case submission returns false.</p>
+ * <p>{@link #submit} snapshots arguments and starts one managed task by default.
+ * {@link #submitAll} executes a whole waypoint list sequentially in one task; separate
+ * submissions may overlap. Direct Java calls inside a command remain ordinary calls.
+ * A stopped task owner may reject with {@link IllegalStateException}, in which case
+ * submission returns false. Accepted does not mean completed.</p>
  */
 public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
     private static final String TAG = "SubsystemCommands";
@@ -222,38 +225,56 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
 
     private final Object host;
     private final Commands commands;
-    private final Consumer<Runnable> enqueue;
+    private final Consumer<Runnable> execute;
 
     public SubsystemCommandBinding(Subsystem subsystem) {
-        this(subsystem, subsystemCommands(), subsystem::enqueue);
+        this(subsystem, subsystemCommands(), subsystem::execute);
     }
 
-    public SubsystemCommandBinding(Object host, Commands commands, Consumer<Runnable> enqueue) {
+    public SubsystemCommandBinding(Object host, Commands commands, Consumer<Runnable> execute) {
         if (host == null) throw new IllegalArgumentException("host == null");
         if (commands == null) throw new IllegalArgumentException("commands == null");
-        if (enqueue == null) throw new IllegalArgumentException("enqueue == null");
-        this.enqueue = enqueue;
+        if (execute == null) throw new IllegalArgumentException("execute == null");
+        this.execute = execute;
         this.host = host;
         this.commands = commands;
     }
 
     @Override
     public boolean submit(String name, Object[] args) {
-        Command command = commands.byName.get(name);
-        if (command == null) return false;
-        Object[] values = args == null ? new Object[0] : args;
-        Overload overload = command.byArity.get(values.length);
-        if (overload == null) return false;
+        if (name == null) return false;
+        return submitAll(Collections.singletonList(new CommandDispatcher.Call(name, args == null ? new Object[0] : args)));
+    }
 
-        final Object[] captured = overload.complete(values);
-        final Object receiver;
-        try {
-            receiver = command.field.get(host);
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Cannot read command target: " + name, e);
+    /** Validate/capture every call first, then run the whole list on one managed thread. */
+    public boolean submitAll(List<CommandDispatcher.Call> calls) {
+        if (calls == null) return false;
+        List<Runnable> prepared = new ArrayList<>();
+        for (CommandDispatcher.Call call : calls) {
+            if (call == null) return false;
+            Command command = commands.byName.get(call.name);
+            if (command == null) return false;
+            Object[] values = call.arguments();
+            Overload overload = command.byArity.get(values.length);
+            if (overload == null) return false;
+            final Object[] captured = overload.complete(values);
+            final Object receiver;
+            try {
+                receiver = command.field.get(host);
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("Cannot read command target: " + call.name, e);
+            }
+            if (receiver == null) return false;
+            prepared.add(() -> invoke(call.name, overload.method, receiver, captured));
         }
+        if (prepared.isEmpty()) return true;
         try {
-            enqueue.accept(() -> invoke(name, overload.method, receiver, captured));
+            execute.accept(() -> {
+                for (Runnable invocation : prepared) {
+                    CommandTasks.checkCancelled();
+                    invocation.run();
+                }
+            });
             return true;
         } catch (IllegalStateException rejected) {
             return false;
@@ -265,6 +286,10 @@ public final class SubsystemCommandBinding implements CommandDispatcher.Sink {
             method.invoke(receiver, args);
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
+            if (cause instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("Command interrupted: " + name);
+            }
             if (cause instanceof RuntimeException) throw (RuntimeException) cause;
             if (cause instanceof Error) throw (Error) cause;
             throw new IllegalStateException("Command failed: " + name, cause);

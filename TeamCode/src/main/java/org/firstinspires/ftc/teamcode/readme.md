@@ -6,32 +6,78 @@ This module, TeamCode, is the place where you will write/paste the code for your
 robot controller App. It contains this team's robot subsystems and OpModes;
 the SDK sample-copying instructions below remain useful when adding new OpModes.
 
-## Subsystems, action sequences, and remote commands
+## Subsystems, aggregate commands, and task threads
 
-- Write subsystems as ordinary Java objects with directly callable methods. Use
-  `SubsystemLifecycle.periodic()` and `onShutdown()` for lifecycle participation instead
-  of inheriting scheduling behavior. Call ordinary subsystem methods on the control thread.
-- Compose work with `ActionSequence.create().run(Runnable).waitMillis(long).waitUntil(BooleanSupplier)`
-  and start it with `robot.subsystem.start(sequence)`. Waits advance with the control loop
-  rather than block it. Multiple sequences may run concurrently; starting one does not
-  preempt another. Each sequence is single-use and cannot be edited after submission.
-  Waits start when reached; place them between callbacks, not inside hardware methods.
-  Callback failures propagate to the OpMode cleanup without automatically retrying the step.
-- `robot.subsystem.clearFlows()` explicitly discards running and queued sequences but does
-  not stop hardware automatically. `robot.subsystem.auto.stopAll()` clears flows and stops
-  shooting/intake. A plain hardware call does not cancel a pending flow: callers coordinate
-  their own writes, without automatic ownership or conflict arbitration.
-- The legacy `Scheduler`, `ScheduleApi`, `ScheduleLifecycle`, `GenerateSchedule`,
-  `ScheduledAction`, and `DirectAction` model is removed. Replace generated API wrappers
-  with direct calls to subsystem objects and explicit action sequences. No scheduling
-  annotation processor or generated scheduling source is required by the build.
-- Remote commands are explicitly opted in on ordinary object methods with `@RemoteCommand`;
-  keep `@Param` on exposed parameters. A public method is not automatically remote-accessible.
-  Requests pass through `subsystem.enqueue(Runnable)` and execute FIFO on the control
-  thread before invoking robot behavior; network threads must not access hardware directly.
+- Subsystems are ordinary Java objects. A direct method call runs synchronously on its
+  caller, including direct hardware/status access. `SubsystemLifecycle.periodic()` and
+  `onShutdown()` participate in the OpMode lifecycle; they do not schedule commands.
+- Only methods explicitly marked `@RemoteCommand` are published. Keep `@Param` on exposed
+  parameters. The annotation controls exposure, not threading: every external HTTP/route
+  invocation starts a managed task by default. No async annotation, generated wrapper,
+  scheduler call, or query registry is needed.
+- An aggregate is an ordinary published method in `AutoCommands` (or another public
+  subsystem field). Write direct subsystem calls, `Thread.sleep(...)`, conditions and
+  interruptible polling loops. Calls to other aggregate methods stay on the same thread.
+  For example, `auto.shoot(rpm, spinupMillis, feedMillis)` directly spins up, sleeps,
+  opens the valve, sleeps, then closes/stops. `intaker.setIntakerPower(power, time)` now
+  waits synchronously and stops before returning; direct OpMode callers must not use a
+  timed/blocking method on the path loop if they want movement to continue.
+- One waypoint's `commands` list runs in order on one task thread. Different waypoints
+  and separate HTTP invocations may overlap, without FIFO completion order, ownership,
+  priority, or conflict arbitration. An accepted HTTP command is not necessarily completed.
+- STOP closes task ingress, interrupts workers, and waits up to one second total before
+  hardware cleanup. Commands must propagate `InterruptedException`, or restore interruption
+  and return. Polling loops need an interrupt check and a timeout. Never swallow cancellation
+  and keep working. Built-in subsystem entry points reject cancelled-task access; direct
+  raw SDK references cannot be revoked. A non-cooperating worker is reported, never forcibly
+  killed with `Thread.stop()`. Shared application state needs `volatile`, atomics or locks.
+- Worker failures abort the OpMode via its update loop and cancel sibling tasks; no implicit
+  retry. Normal route completion stops movement, seals ingress, and keeps updating until
+  started commands finish. STOP/failure cancels rather than waiting for normal completion.
+- `auto.stopAll()` cancels sibling tasks and legacy flows, then stops intake/shooter; it
+  does not cancel its own caller or stop the route/drivetrain. Later commands in that same
+  caller can still execute. It is not an emergency-stop API.
+- `ActionSequence` remains an optional legacy control-loop facility. Its callbacks must
+  not block. `clearFlows()` clears those flows only; it does not cancel command threads or
+  automatically stop hardware. The old generated Scheduler model remains removed.
 
-Keep subsystem state and hardware updates on the control thread. Stop/cancellation and
-lifecycle handling should follow the current implementation rather than the old generated API.
+### Waypoint command lists
+
+New route JSON uses a top-level format version and frame array. Bare arrays remain
+readable as legacy v1; an object must have numeric `version: 2` and an array `frames`.
+Unknown versions and malformed envelopes are rejected on upload and before movement.
+The format version is independent of the HTTP route revision (`If-Match`).
+`commands` is optional; commands fire when the point completes without pausing movement.
+The first geometric point sets the initial pose.
+
+```json
+{
+  "version": 2,
+  "frames": [
+    {
+      "x": 0, "y": 0, "dx": 24, "dy": 0, "heading": 0,
+      "commands": [
+        {"name": "intaker.intakerIn", "params": ["1"]},
+        {"name": "auto.waitMillis", "params": ["1000"]},
+        {"name": "intaker.intakerArmStop", "params": []}
+      ]
+    },
+    {
+      "x": 36, "y": 0, "dx": 24, "dy": 0, "heading": 90,
+      "commands": [
+        {"name": "auto.shoot", "params": ["6000", "1000", "500"]}
+      ]
+    }
+  ]
+}
+```
+
+`auto.waitMillis` is just a normal Java command, not an interpreter instruction.
+Arguments remain ordered strings converted using the existing command catalog. Each list
+is fully resolved before a single worker is submitted; an invalid later entry cannot start
+an earlier one. Legacy `command`/`commandParams` stays supported. Do not combine a non-empty
+legacy command with a non-empty `commands` list. Movement `{"wait": seconds}` frames remain
+supported and are independent of command-thread waits.
 
 ### Command signatures and optional parameters
 

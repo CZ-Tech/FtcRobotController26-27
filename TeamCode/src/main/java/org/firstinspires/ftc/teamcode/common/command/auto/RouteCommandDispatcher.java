@@ -4,107 +4,138 @@ import android.util.Log;
 
 import org.firstinspires.ftc.teamcode.common.network.CommandArgs;
 import org.firstinspires.ftc.teamcode.common.network.CommandCatalog;
+import org.firstinspires.ftc.teamcode.common.network.CommandDispatcher;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Executes the command attached to one finished route frame.
+ * Validates and submits the commands attached to one finished route frame.
  *
- * <p>A route frame may carry {@code command} and {@code commandParams}; the loader only
- * emits them as a {@link SplineTrajectoryLoader.TrajectoryEvent}. This class is the single
- * place that resolves the name against {@code GET /api/v2/commands}, converts the string
- * parameters with the descriptor's types, and hands the typed call to a {@link Sink}
- * (on the robot: {@code SubsystemCommandBinding}).</p>
+ * <p>The loader emits legacy {@code command}/{@code commandParams} or an ordered
+ * {@code commands} list as data. This dispatcher resolves every name and converts every
+ * parameter before handing the entire frame to a {@link BatchSink} exactly once. The
+ * sink must accept the list as one managed task: execute calls in order within that task,
+ * while tasks from different frames may run concurrently. Aggregate command bodies use
+ * ordinary Java calls and sleep/polling, not a route-command DSL.</p>
  *
- * <p><b>Fail fast.</b> Every result other than {@link Result#DISPATCHED} and
- * {@link Result#IGNORED} is fatal: the caller must abort the route immediately instead of
- * skipping the command or retrying it. Nothing here substitutes defaults or drops
- * arguments silently.</p>
- *
- * <p>The command fires when its frame completes. To run it and then dwell, attach it to
- * the arrival waypoint and follow that waypoint with a {@code {"wait": n}} frame.</p>
+ * <p>Dispatch does not wait for task completion. Every result other than
+ * {@link Result#DISPATCHED} and {@link Result#IGNORED} is fatal to the caller's route;
+ * task lifetime and cancellation remain the owning OpMode's responsibility.</p>
  */
 public final class RouteCommandDispatcher {
-    /** Same contract as {@code CommandDispatcher.Sink}: false means "not accepted". */
+    /** Legacy single-call adapter. A frame with multiple calls is rejected, never split. */
     public interface Sink {
         boolean submit(String name, Object[] args);
     }
 
+    /** Accept or reject one complete, validated, ordered frame as a single managed task. */
+    @FunctionalInterface
+    public interface BatchSink {
+        boolean submit(List<CommandDispatcher.Call> calls);
+    }
+
     public enum Result {
-        /** No {@code command} on this frame; nothing to do. */
+        /** No commands on this frame; nothing to do. */
         IGNORED,
         DISPATCHED,
-        /** Name is not in the published catalog. */
+        /** A name is not in the published catalog. */
         UNKNOWN_COMMAND,
         /** The catalog has no signature with this argument count. */
         ARG_MISMATCH,
         /** A parameter cannot be converted to the declared type. */
         BAD_ARGS,
-        /** The sink refused the call (for example no matching remote method). */
+        /** The sink refused the batch, or a legacy sink received multiple calls. */
         REJECTED,
-        /** The sink threw; the call was not queued. */
+        /** The sink threw while submitting the batch. */
         THREW
     }
 
     private static final String TAG = "RouteCommand";
 
-    private final Sink sink;
+    private final BatchSink sink;
     private final CommandCatalog catalog;
 
     public RouteCommandDispatcher(Sink sink, CommandCatalog catalog) {
+        this(catalog, singleCallAdapter(sink));
+    }
+
+    private RouteCommandDispatcher(CommandCatalog catalog, BatchSink sink) {
         if (sink == null) throw new IllegalArgumentException("sink == null");
         if (catalog == null) throw new IllegalArgumentException("catalog == null");
         this.sink = sink;
         this.catalog = catalog;
     }
 
-    /** Dispatches the event's command; {@code null} and command-less events are ignored. */
-    public Result dispatch(SplineTrajectoryLoader.TrajectoryEvent event) {
-        if (event == null) return Result.IGNORED;
-        return dispatch(event.frameIndex, event.command, event.commandParams);
+    /** Batch entry point without introducing ambiguous functional-interface constructors. */
+    public static RouteCommandDispatcher forBatch(BatchSink sink, CommandCatalog catalog) {
+        return new RouteCommandDispatcher(catalog, sink);
     }
 
+    private static BatchSink singleCallAdapter(final Sink sink) {
+        if (sink == null) throw new IllegalArgumentException("sink == null");
+        return calls -> {
+            if (calls.size() != 1) return false;
+            CommandDispatcher.Call call = calls.get(0);
+            return sink.submit(call.name, call.arguments());
+        };
+    }
+
+    /** Dispatches the event's complete list; null and command-less events are ignored. */
+    public Result dispatch(SplineTrajectoryLoader.TrajectoryEvent event) {
+        if (event == null) return Result.IGNORED;
+        return dispatchCommands(event.frameIndex, event.commands);
+    }
+
+    /** Compatibility entry point for a legacy single command. */
     public Result dispatch(int frameIndex, String command, List<String> params) {
         if (command == null || command.trim().isEmpty()) return Result.IGNORED;
-        String name = command.trim();
+        return dispatchCommands(frameIndex, Collections.singletonList(
+                new SplineTrajectoryLoader.TrajectoryCommand(command,
+                        params == null ? Collections.<String>emptyList() : params)));
+    }
 
-        CommandCatalog.Descriptor descriptor = catalog.find(name);
-        if (descriptor == null) {
-            Log.e(TAG, "frame[" + frameIndex + "]: unknown command '" + name + "'");
-            return Result.UNKNOWN_COMMAND;
+    private Result dispatchCommands(
+            int frameIndex, List<SplineTrajectoryLoader.TrajectoryCommand> commands) {
+        if (commands.isEmpty()) return Result.IGNORED;
+        List<CommandDispatcher.Call> calls = new ArrayList<>(commands.size());
+        for (SplineTrajectoryLoader.TrajectoryCommand command : commands) {
+            String name = command.name;
+            CommandCatalog.Descriptor descriptor = catalog.find(name);
+            if (descriptor == null) {
+                Log.e(TAG, "frame[" + frameIndex + "]: unknown command '" + name + "'");
+                return Result.UNKNOWN_COMMAND;
+            }
+
+            List<String> types = descriptor.typesForArity(command.params.size());
+            if (types == null) {
+                Log.e(TAG, "frame[" + frameIndex + "]: " + name
+                        + " does not accept " + command.params.size() + " argument(s)");
+                return Result.ARG_MISMATCH;
+            }
+
+            try {
+                calls.add(new CommandDispatcher.Call(name,
+                        CommandArgs.convertAll(types, command.params)));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "frame[" + frameIndex + "]: bad arguments for " + name
+                        + ": " + e.getMessage());
+                return Result.BAD_ARGS;
+            }
         }
 
-        List<String> values = params == null
-                ? Collections.<String>emptyList()
-                : params;
-        List<String> types = descriptor.typesForArity(values.size());
-        if (types == null) {
-            Log.e(TAG, "frame[" + frameIndex + "]: " + name
-                    + " does not accept " + values.size() + " argument(s)");
-            return Result.ARG_MISMATCH;
-        }
-
-        Object[] args;
         try {
-            args = CommandArgs.convertAll(types, values);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "frame[" + frameIndex + "]: bad arguments for " + name
-                    + ": " + e.getMessage());
-            return Result.BAD_ARGS;
-        }
-
-        try {
-            if (!sink.submit(name, args)) {
-                Log.e(TAG, "frame[" + frameIndex + "]: " + name + " was rejected");
+            if (!sink.submit(Collections.unmodifiableList(calls))) {
+                Log.e(TAG, "frame[" + frameIndex + "]: command batch was rejected");
                 return Result.REJECTED;
             }
         } catch (RuntimeException e) {
-            Log.e(TAG, "frame[" + frameIndex + "]: " + name + " threw", e);
+            Log.e(TAG, "frame[" + frameIndex + "]: command batch submission threw", e);
             return Result.THREW;
         }
 
-        Log.i(TAG, "frame[" + frameIndex + "]: dispatched " + name);
+        Log.i(TAG, "frame[" + frameIndex + "]: dispatched " + calls.size() + " command(s)");
         return Result.DISPATCHED;
     }
 

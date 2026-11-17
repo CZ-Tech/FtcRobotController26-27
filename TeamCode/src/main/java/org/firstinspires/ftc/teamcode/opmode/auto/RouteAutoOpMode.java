@@ -26,10 +26,10 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
  * OpMode therefore selects exactly one route; pressing START immediately starts that
  * route. There is intentionally no independent "execute path" control plane.</p>
  *
- * <p>Waypoint {@code command}/{@code commandParams} are dispatched through the same
- * FIFO control-thread queue the remote command API uses. Dispatch is fail-fast: an unknown
- * command, wrong argument count, bad argument, rejected call or parse error stops
- * the route and the OpMode immediately instead of being skipped.</p>
+ * <p>Each waypoint's {@code commands} list runs sequentially on one managed task thread.
+ * Different waypoints may overlap while the path keeps moving. Legacy single
+ * {@code command}/{@code commandParams} is still accepted. Dispatch and worker failures
+ * abort the route; successful path completion waits for all started commands.</p>
  */
 public final class RouteAutoOpMode extends RobotLinearOpMode {
     private static final String TAG = "RouteAutoOpMode";
@@ -50,10 +50,10 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         RobotNetworkV2 network = RobotNetworkService.get();
         SplineTracker tracker = new SplineTracker(robot);
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
-        // Waypoint commands use the same FIFO control-thread queue as remote commands.
-        // The catalog is the one GET /commands serves.
-        RouteCommandDispatcher commands = new RouteCommandDispatcher(
-                new SubsystemCommandBinding(robot.subsystem)::submit,
+        // One waypoint list runs sequentially on one managed task; later points may overlap.
+        // The catalog is the same one served to remote command clients.
+        RouteCommandDispatcher commands = RouteCommandDispatcher.forBatch(
+                new SubsystemCommandBinding(robot.subsystem)::submitAll,
                 network.commands);
         RouteRepository.Entry route = network.routes.get(routeName);
 
@@ -102,30 +102,28 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                             // Any dispatch failure terminates the whole route: no skip,
                             // no retry, no silent default.
                             throw new RouteAborted("frame " + event.frameIndex
-                                    + " command '" + event.command + "' -> " + result);
+                                    + " commands " + event.commands + " -> " + result);
                         }
                     }
                     if (!loader.isRunning()) {
-                        boolean completed = loader.getStatus()
-                                == SplineTrajectoryLoader.ExecutionStatus.COMPLETED;
-                        if (!completed) {
+                        if (loader.getStatus() != SplineTrajectoryLoader.ExecutionStatus.COMPLETED) {
                             Log.e(TAG, "Route '" + routeName + "' ended: "
                                     + loader.getLastResult());
-                        }
-                        if (completed) {
-                            // A FIFO end marker lets all already accepted frame commands run,
-                            // even across the per-tick budget. Later remote calls cannot delay it.
-                            // Optional waits still need an explicit dwell frame in the route.
-                            robot.subsystem.enqueue(() -> {
-                                network.execution.publish(ExecutionStateStore.State.IDLE, 0, routeName);
-                                requestOpModeStop();
-                            });
-                        } else {
                             network.execution.publish(ExecutionStateStore.State.NOT_READY, 0, routeName);
                             requestOpModeStop();
+                            return;
                         }
-                        return;
+                        // The loader has stopped the drivetrain. Keep ticking until all
+                        // previously started waypoint tasks finish, including final-point waits.
+                        robot.subsystem.finishCommands();
                     }
+                }
+                if (loader.getStatus() == SplineTrajectoryLoader.ExecutionStatus.COMPLETED
+                        && robot.subsystem.commandsIdle()) {
+                    robot.subsystem.checkCommandFailure();
+                    network.execution.publish(ExecutionStateStore.State.IDLE, 0, routeName);
+                    requestOpModeStop();
+                    return;
                 }
 
                 robot.odo.update();

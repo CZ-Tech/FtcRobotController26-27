@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.mockrobot;
 
+import org.firstinspires.ftc.teamcode.common.network.RouteJson;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -31,6 +32,17 @@ public final class MockRoutePlan {
         final double duration;
         final double delay;
 
+        Node(Node source, double delay) {
+            x = source.x;
+            y = source.y;
+            dx = source.dx;
+            dy = source.dy;
+            heading = source.heading;
+            dHeading = source.dHeading;
+            duration = source.duration;
+            this.delay = delay;
+        }
+
         Node(JSONObject json) {
             x = json.optDouble("x", 0);
             y = json.optDouble("y", 0);
@@ -48,7 +60,7 @@ public final class MockRoutePlan {
 
     private MockRoutePlan(List<Node> nodes) {
         this.nodes = nodes;
-        double time = 0;
+        double time = nodes.get(0).delay;
         for (int i = 1; i < nodes.size(); i++) {
             time += nodes.get(i).duration + nodes.get(i).delay;
         }
@@ -56,10 +68,21 @@ public final class MockRoutePlan {
     }
 
     public static MockRoutePlan parse(String json) {
-        JSONArray array = new JSONArray(json);
+        JSONArray array = RouteJson.frames(json);
         List<Node> nodes = new ArrayList<>();
         for (int i = 0; i < array.length(); i++) {
-            nodes.add(new Node(array.getJSONObject(i)));
+            JSONObject frame = array.getJSONObject(i);
+            if (frame.has("wait")) {
+                double wait = frame.getDouble("wait");
+                if (!Double.isFinite(wait) || wait < 0 || nodes.isEmpty()) {
+                    throw new IllegalArgumentException("wait requires a preceding point and finite non-negative seconds");
+                }
+                int last = nodes.size() - 1;
+                Node previous = nodes.get(last);
+                nodes.set(last, new Node(previous, previous.delay + wait));
+            } else {
+                nodes.add(new Node(frame));
+            }
         }
         if (nodes.isEmpty()) throw new IllegalArgumentException("route has no nodes");
         return new MockRoutePlan(Collections.unmodifiableList(nodes));
@@ -82,7 +105,8 @@ public final class MockRoutePlan {
     public Pose sample(double seconds) {
         if (nodes.size() == 1 || totalTime <= 0) return startPose();
         double t = Math.max(0, Math.min(totalTime, seconds));
-        double accumulated = 0;
+        double accumulated = nodes.get(0).delay;
+        if (t <= accumulated) return startPose();
         for (int i = 1; i < nodes.size(); i++) {
             Node start = nodes.get(i - 1);
             Node end = nodes.get(i);

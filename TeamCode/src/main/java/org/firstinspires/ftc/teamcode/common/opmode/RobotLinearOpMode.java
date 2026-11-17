@@ -54,6 +54,7 @@ public abstract class RobotLinearOpMode extends LinearOpMode {
     /** Run one application iteration and one subsystem control-loop tick until stopped. */
     protected final void runWhileActive(Runnable iteration) {
         while (opModeIsActive()) {
+            robot.subsystem.checkCommandFailure();
             iteration.run();
             if (!opModeIsActive()) break;
             robot.subsystem.update();

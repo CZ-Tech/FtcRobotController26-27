@@ -384,6 +384,24 @@ public class SubsystemLoopTest {
         assertEquals(2, hooks.periodic);
     }
 
+    @Test(timeout = 8000)
+    public void commandThreadCanClearActiveAndQueuedLegacyFlows() throws Exception {
+        SubsystemLoop loop = new SubsystemLoop();
+        AtomicInteger forbidden = new AtomicInteger();
+        AtomicInteger ordinary = new AtomicInteger();
+        loop.start(ActionSequence.create().waitUntil(() -> false).run(forbidden::incrementAndGet));
+        assertFalse(loop.isIdle());
+        loop.update();
+        loop.start(ActionSequence.create().run(forbidden::incrementAndGet));
+        loop.enqueue(ordinary::incrementAndGet);
+        assertNull(onOtherThread(loop::clearFlows));
+        assertFalse("ordinary queued calls remain", loop.isIdle());
+        loop.update();
+        assertEquals(0, forbidden.get());
+        assertEquals(1, ordinary.get());
+        assertTrue(loop.isIdle());
+    }
+
     private static Throwable onOtherThread(Runnable action) throws InterruptedException {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread thread = new Thread(() -> {
