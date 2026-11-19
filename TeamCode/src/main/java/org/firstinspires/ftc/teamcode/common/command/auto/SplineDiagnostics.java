@@ -6,6 +6,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.command.auto.spline.SplineController;
+import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 import org.firstinspires.ftc.teamcode.common.network.RobotRuntimeStore;
 
@@ -37,8 +38,8 @@ public final class SplineDiagnostics {
     }
 
     void control(long timeNs, int segment, double observedDt, SplineController.Input in,
-                 SplineController.Output out, Pose2D raw, OdoDrivetrain.DriveTrace drive,
-                 String terminalReason) {
+                 SplineController.Output out, Pose2D raw, MixedOdo.PinpointSample pinpoint,
+                 OdoDrivetrain.DriveTrace drive, String terminalReason) {
         if (!enabled) return;
         tick++;
         if (controlLogged && terminalReason == null && timeNs - lastControlNs < SAMPLE_INTERVAL_NS
@@ -66,7 +67,7 @@ public final class SplineDiagnostics {
                         + " crossErrIn=%.4f tangentErrIn=%.4f endErrIn=%.4f"
                         + " brakeZone=%b reverseRequested=%b stopCapture=%b projectionFault=%b"
                         + " requestedTN=(%.4f,%.4f) fieldCmdXYYaw=(%.4f,%.4f,%.4f)"
-                        + " targetHDeg=%.4f headingErrDeg=%.4f voltage=%.3f %s",
+                        + " targetHDeg=%.4f headingErrDeg=%.4f voltage=%.3f pinpoint[%s] %s",
                 segment, tick, terminalReason == null ? "RUNNING" : terminalReason,
                 in.x, in.y, in.heading, pose(raw), observedDt, in.dt, in.vx, in.vy,
                 out.tangentialVelocity, vNormal, out.previousU, out.closestU,
@@ -74,19 +75,46 @@ public final class SplineDiagnostics {
                 out.brakeTriggerDistance, out.crossError, out.projectionTangentError,
                 out.endPositionError, brakeZone, reverse, capture, out.projectionFault,
                 out.candidateTangentPower, out.candidateCrossPower, out.powerX, out.powerY,
-                out.yawPower, out.targetHeading, out.headingError, in.voltage, applied));
+                out.yawPower, out.targetHeading, out.headingError, in.voltage,
+                pinpoint(pinpoint), applied));
+    }
+
+    /**
+     * One unthrottled line per control iteration carrying the device's own raw output. CTRL is
+     * sampled, so a strafe that lasts a few ticks would otherwise be averaged away; these are the
+     * counts the localizer itself reported, before any field transform.
+     */
+    void odometry(long timeNs, int segment, MixedOdo.PinpointSample sample) {
+        if (!enabled || sample == null || sample.rawPose == null) return;
+        event("ODOM", timeNs, String.format(Locale.ROOT, "seg=%d rawPoseInDeg=%s %s",
+                segment, pose(sample.rawPose), pinpoint(sample)));
     }
 
     /** Logs the actual source snapshot of the pose event, rather than re-reading or projecting it. */
-    public void publishedPose(RobotRuntimeStore.Snapshot snapshot, Pose2D raw, int frame) {
+    public void publishedPose(RobotRuntimeStore.Snapshot snapshot, Pose2D raw,
+                              MixedOdo.PinpointSample pinpoint, int frame) {
         if (!enabled || (snapshot.opModeActive && poseLogged
                 && snapshot.timestampNanos - lastPoseNs < SAMPLE_INTERVAL_NS)) return;
         poseLogged = true;
         lastPoseNs = snapshot.timestampNanos;
         event(snapshot.opModeActive ? "POSE" : "POSE_FINAL", snapshot.timestampNanos,
                 String.format(Locale.ROOT,
-                        "frame=%d seq=%d poseInDeg=(%.4f,%.4f,%.4f) rawInDeg=%s",
-                        frame, snapshot.sequence, snapshot.x, snapshot.y, snapshot.heading, pose(raw)));
+                        "frame=%d seq=%d poseInDeg=(%.4f,%.4f,%.4f) rawInDeg=%s pinpoint[%s]",
+                        frame, snapshot.sequence, snapshot.x, snapshot.y, snapshot.heading, pose(raw),
+                        pinpoint(pinpoint)));
+    }
+
+    /**
+     * Raw two-channel encoder ticks straight from the Pinpoint bulk read, before any field-indicator
+     * rotation. These are cumulative signed counts, not distances, and both channels are reported even
+     * when they disagree with the pose estimate.
+     */
+    static String pinpoint(MixedOdo.PinpointSample sample) {
+        if (sample == null || sample.rawPose == null) return "unavailable";
+        return String.format(Locale.ROOT,
+                "encXYTicks=(%d,%d) encVelXYInS=(%.3f,%.3f) deviceStatus=%s loopUs=%d",
+                sample.xTicks, sample.yTicks, sample.vxInS, sample.vyInS,
+                sample.status, sample.loopUs);
     }
 
     static String pose(Pose2D pose) {

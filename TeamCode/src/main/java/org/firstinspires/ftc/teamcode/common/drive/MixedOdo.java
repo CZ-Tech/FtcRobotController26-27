@@ -60,7 +60,7 @@ public class MixedOdo {
             }
         } else {
             Log.i("MixedOdo", "TeleOp Mode: Restored coordinate offsets from Auto.");
-            updateFieldPose(); // 根据缓存的偏移量计算出当前位置
+            updateFieldPose(pinpoint.getPosition()); // 根据缓存的偏移量计算出当前位置
         }
         pinpoint.update();
     }
@@ -88,12 +88,35 @@ public class MixedOdo {
     /**
      * 高频主循环
      */
-    public synchronized void update() {
-        pinpoint.update();
-        if (Globals.isPoseInitialized) {
-            updateFieldPose();
-        }
+    public void update() {
+        updateAndGetPosition(null);
+    }
 
+    /** Caller-owned diagnostics from one Pinpoint bulk update, before any field transform. */
+    public static final class PinpointSample {
+        public Pose2D rawPose;
+        public int xTicks, yTicks;
+        public double vxInS, vyInS;
+        public GoBildaPinpointDriver.DeviceStatus status;
+        public int loopUs;
+    }
+
+    /** Updates once and returns the field pose derived from the very same device sample. */
+    public synchronized Pose2D updateAndGetPosition(PinpointSample sample) {
+        pinpoint.update();
+        Pose2D raw = pinpoint.getPosition();
+        boolean initialized = Globals.isPoseInitialized;
+        if (initialized) updateFieldPose(raw);
+        if (sample != null) {
+            sample.rawPose = raw;
+            sample.xTicks = pinpoint.getEncoderX();
+            sample.yTicks = pinpoint.getEncoderY();
+            sample.vxInS = pinpoint.getVelX(DistanceUnit.INCH);
+            sample.vyInS = pinpoint.getVelY(DistanceUnit.INCH);
+            sample.status = pinpoint.getDeviceStatus();
+            sample.loopUs = pinpoint.getLoopTime();
+        }
+        return initialized ? currentFieldPose : raw;
     }
 
     public Pose2D getPosition() {
@@ -133,8 +156,7 @@ public class MixedOdo {
         return lastRawFieldInput;
     }
 
-    private void updateFieldPose() {
-        Pose2D rawOdom = pinpoint.getPosition();
+    private void updateFieldPose(Pose2D rawOdom) {
         lastRawFieldInput = rawOdom;
         double rawX = rawOdom.getX(DistanceUnit.METER);
         double rawY = rawOdom.getY(DistanceUnit.METER);
@@ -181,7 +203,7 @@ public class MixedOdo {
         offsetX = targetFieldPose.getX(DistanceUnit.METER) - rotX;
         offsetY = targetFieldPose.getY(DistanceUnit.METER) - rotY;
 
-        updateFieldPose();
+        updateFieldPose(rawOdom);
     }
 
     // ==========================================

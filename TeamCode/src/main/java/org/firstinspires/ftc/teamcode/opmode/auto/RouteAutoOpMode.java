@@ -50,6 +50,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
 
         RobotNetworkV2 network = RobotNetworkService.get();
         SplineDiagnostics diagnostics = new SplineDiagnostics(Globals.Auto.LOGCAT_DIAGNOSTICS);
+        MixedOdo.PinpointSample poseSample = diagnostics.enabled() ? new MixedOdo.PinpointSample() : null;
         SplineTracker tracker = new SplineTracker(robot, diagnostics);
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
         // One waypoint list runs sequentially on one managed task; later points may overlap.
@@ -135,8 +136,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                     return;
                 }
 
-                robot.odo.update();
-                Pose2D pose = robot.odo.getPosition();
+                Pose2D pose = robot.odo.updateAndGetPosition(poseSample);
                 network.runtime.publish(
                         true,
                         routeName,
@@ -145,7 +145,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                         pose.getHeading(AngleUnit.DEGREES));
                 if (diagnostics.enabled()) {
                     diagnostics.publishedPose(network.runtime.latest(), robot.odo.getLastRawFieldInput(),
-                            loader.getCurrentFrameIndex());
+                            poseSample, loader.getCurrentFrameIndex());
                 }
 
                 telemetry.addData("Route", routeName);
@@ -177,9 +177,9 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
     private static void publishInactive(RobotNetworkV2 network, Robot robot,
                                         SplineDiagnostics diagnostics, int frame) {
         Pose2D raw = null;
+        MixedOdo.PinpointSample sample = diagnostics.enabled() ? new MixedOdo.PinpointSample() : null;
         try {
-            robot.odo.update();
-            Pose2D pose = robot.odo.getPosition();
+            Pose2D pose = robot.odo.updateAndGetPosition(sample);
             network.runtime.publish(
                     false,
                     null,
@@ -190,7 +190,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         } catch (Exception ignored) {
             network.runtime.publish(false, null, 0, 0, 0);
         }
-        if (diagnostics.enabled()) diagnostics.publishedPose(network.runtime.latest(), raw, frame);
+        if (diagnostics.enabled()) diagnostics.publishedPose(network.runtime.latest(), raw, sample, frame);
     }
 
     /** Fatal waypoint-command failure; unwinds {@code runWhileActive} immediately. */

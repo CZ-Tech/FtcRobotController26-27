@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.command.auto.spline.SplineController;
 import org.firstinspires.ftc.teamcode.common.command.auto.spline.SplineGeometry;
 import org.firstinspires.ftc.teamcode.common.command.auto.spline.VelocityEstimator;
+import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
 import org.firstinspires.ftc.teamcode.common.drive.OdoDrivetrain;
 
 /**
@@ -138,6 +139,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     private final Robot robot;
     private final SplineDiagnostics diagnostics;
     private final OdoDrivetrain.DriveTrace driveTrace;
+    private final MixedOdo.PinpointSample pinpointSample;
 
     private double gotoX, gotoY, gotoH;
     private SegmentStatus lastSegmentStatus = SegmentStatus.IDLE;
@@ -177,6 +179,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         this.robot = robot;
         this.diagnostics = diagnostics;
         this.driveTrace = diagnostics.enabled() ? new OdoDrivetrain.DriveTrace() : null;
+        this.pinpointSample = diagnostics.enabled() ? new MixedOdo.PinpointSample() : null;
         robot.odoDrivetrain.setRunMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         robot.odoDrivetrain.setZeroPowerBehavior(Globals.Auto.ZERO_POWER_BEHAVIOR);
         robot.odo.resetPosAndIMU();
@@ -223,7 +226,8 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         if (diagnostics.enabled()) {
             diagnostics.event("BEGIN", System.nanoTime(), "targetInDeg=" + SplineDiagnostics.pose(pose)
                     + " poseInDeg=" + SplineDiagnostics.pose(getPosition())
-                    + " rawInDeg=" + SplineDiagnostics.pose(robot.odo.getLastRawFieldInput()));
+                    + " rawInDeg=" + SplineDiagnostics.pose(robot.odo.getLastRawFieldInput())
+                    + " pinpoint[" + SplineDiagnostics.pinpoint(pinpointSample) + "]");
         }
     }
 
@@ -294,8 +298,8 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     }
 
     private void rebaseVelocityEstimator() {
-        robot.odo.update();
-        velocityEstimator.rebase(getX(), getY());
+        Pose2D pose = robot.odo.updateAndGetPosition(pinpointSample);
+        velocityEstimator.rebase(pose.getX(DistanceUnit.INCH), pose.getY(DistanceUnit.INCH));
         prevLoopTime = System.nanoTime() / 1e9;
         odometryVelocityReady = true;
     }
@@ -347,18 +351,19 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
             return updateHeadingOnly();
         }
 
-        robot.odo.update();
+        Pose2D odomPose = robot.odo.updateAndGetPosition(pinpointSample);
 
         long nowNanos = System.nanoTime();
+        diagnostics.odometry(nowNanos, segmentIndex, pinpointSample);
         double now = nowNanos / 1e9;
         double observedDt = now - prevLoopTime;
         double dt = observedDt;
         if (dt <= 1e-5 || dt > 0.25) dt = 0.02;
         prevLoopTime = now;
 
-        double rx = getX();
-        double ry = getY();
-        double curH = getHeading();
+        double rx = odomPose.getX(DistanceUnit.INCH);
+        double ry = odomPose.getY(DistanceUnit.INCH);
+        double curH = odomPose.getHeading(AngleUnit.DEGREES);
         if (!Double.isFinite(rx) || !Double.isFinite(ry) || !Double.isFinite(curH)) {
             SegmentResult failed = finishActiveSegment(SegmentStatus.ABORTED);
             if (diagnostics.enabled()) {
@@ -377,7 +382,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         if (output.projectionFault) {
             // Stop hardware before any telemetry/logging that could block.
             SegmentResult failed = finishActiveSegment(SegmentStatus.ABORTED);
-            diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, null,
+            diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, pinpointSample, null,
                     "PROJECTION_FAULT");
             robot.telemetry.addData("projectionFault", "Tangential projection residual exceeded limit");
             robot.telemetry.addData("projectionTangentErr", "%.2f in", output.projectionTangentError);
@@ -419,17 +424,20 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
                 stallTimer.reset();
             } else if (stallTimer.seconds() >= Globals.Auto.STALL_TIMEOUT_S && !done) {
                 SegmentResult stalled = finishActiveSegment(SegmentStatus.STALLED);
-                diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, sent, "STALLED");
+                diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, pinpointSample,
+                        sent, "STALLED");
                 return stalled;
             }
         }
 
         if (done) {
             SegmentResult arrived = finishActiveSegment(SegmentStatus.ARRIVED);
-            diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, sent, "ARRIVED");
+            diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, pinpointSample,
+                    sent, "ARRIVED");
             return arrived;
         }
-        diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, sent, null);
+        diagnostics.control(nowNanos, segmentIndex, observedDt, input, output, raw, pinpointSample,
+                sent, null);
 
         robot.telemetry.addData("seg", segmentIndex);
         robot.telemetry.addData("poseX", "%.2f in", rx);
@@ -475,7 +483,7 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
     }
 
     private SegmentResult updateHeadingOnly() {
-        robot.odo.update();
+        robot.odo.updateAndGetPosition(pinpointSample);
         double current = getHeading();
         if (!Double.isFinite(current)) {
             return finishActiveSegment(SegmentStatus.ABORTED);
