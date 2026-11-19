@@ -178,11 +178,11 @@ public class Globals {
         // ------------------------------------------------------------------
 
         /** Conservative *measured* effective deceleration in inch/s^2. Must be calibrated. */
-        public static volatile double SAFE_BRAKE_DECEL = 30.0;
+        public static volatile double SAFE_BRAKE_DECEL = 750.0;
         /** Negative tangential motor-power magnitude requested by the Bang-Bang brake. */
         public static volatile double BRAKE_REVERSE_POWER = 0.75;
         /** Default positive power ceiling once inside a JSON braking zone. */
-        public static volatile double DEFAULT_BRAKE_FORWARD_POWER = 0.30;
+        public static volatile double DEFAULT_BRAKE_FORWARD_POWER = 0.25;
         /** One-pole filter time constant, seconds; applies ONLY within a braking zone. */
         public static volatile double BRAKE_FILTER_TAU_S = 0.07;
 
