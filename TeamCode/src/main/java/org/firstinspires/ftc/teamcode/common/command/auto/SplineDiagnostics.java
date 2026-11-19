@@ -112,9 +112,9 @@ public final class SplineDiagnostics {
     static String pinpoint(MixedOdo.PinpointSample sample) {
         if (sample == null || sample.rawPose == null) return "unavailable";
         return String.format(Locale.ROOT,
-                "encXYTicks=(%d,%d) encVelXYInS=(%.3f,%.3f) deviceStatus=%s loopUs=%d",
+                "encXYTicks=(%d,%d) encVelXYInS=(%.3f,%.3f) deviceStatus=%s fwVersion=%d loopUs=%d",
                 sample.xTicks, sample.yTicks, sample.vxInS, sample.vyInS,
-                sample.status, sample.loopUs);
+                sample.status, sample.version, sample.loopUs);
     }
 
     static String pose(Pose2D pose) {

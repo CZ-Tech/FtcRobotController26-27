@@ -98,6 +98,7 @@ public class MixedOdo {
         public int xTicks, yTicks;
         public double vxInS, vyInS;
         public GoBildaPinpointDriver.DeviceStatus status;
+        public int version;
         public int loopUs;
     }
 
@@ -114,6 +115,7 @@ public class MixedOdo {
             sample.vxInS = pinpoint.getVelX(DistanceUnit.INCH);
             sample.vyInS = pinpoint.getVelY(DistanceUnit.INCH);
             sample.status = pinpoint.getDeviceStatus();
+            sample.version = pinpoint.getDeviceVersion();
             sample.loopUs = pinpoint.getLoopTime();
         }
         return initialized ? currentFieldPose : raw;
