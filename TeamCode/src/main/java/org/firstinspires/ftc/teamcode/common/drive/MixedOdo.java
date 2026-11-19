@@ -119,6 +119,20 @@ public class MixedOdo {
         return initialized ? currentFieldPose : raw;
     }
 
+    /**
+     * True when the device itself reports a pod or IMU fault. A missing pod is not a noisy reading:
+     * that whole axis stays at zero, so a follower would keep asking for correction it can never see.
+     * The status is part of the normal bulk read, so this costs no extra I2C traffic.
+     */
+    public boolean hasOdometryFault() {
+        GoBildaPinpointDriver.DeviceStatus status = pinpoint.getDeviceStatus();
+        return status == GoBildaPinpointDriver.DeviceStatus.FAULT_X_POD_NOT_DETECTED
+                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_Y_POD_NOT_DETECTED
+                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_NO_PODS_DETECTED
+                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_IMU_RUNAWAY
+                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_BAD_READ;
+    }
+
     public Pose2D getPosition() {
         if (!Globals.isPoseInitialized) {
             // 如果还没初始化完，先返回原始里程计坐标（防止空指针或失控）

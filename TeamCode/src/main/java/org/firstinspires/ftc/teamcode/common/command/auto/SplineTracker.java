@@ -352,6 +352,17 @@ public class SplineTracker implements SplineTrajectoryLoader.MotionDriver {
         }
 
         Pose2D odomPose = robot.odo.updateAndGetPosition(pinpointSample);
+        if (robot.odo.hasOdometryFault()) {
+            // A missing pod pins one axis at zero, so the follower would keep requesting a correction
+            // it can never observe and would drift the full segment before tripping a projection
+            // guard. Stop here and name the real cause.
+            SegmentResult failed = finishActiveSegment(SegmentStatus.ABORTED);
+            diagnostics.event("ODOMETRY_FAULT", System.nanoTime(), "seg=" + segmentIndex
+                    + " " + SplineDiagnostics.pinpoint(pinpointSample));
+            robot.telemetry.addData("odometryFault", "Pinpoint reports a pod or IMU fault");
+            Log.e("SplineTracker", "Odometry fault: " + SplineDiagnostics.pinpoint(pinpointSample));
+            return failed;
+        }
 
         long nowNanos = System.nanoTime();
         diagnostics.odometry(nowNanos, segmentIndex, pinpointSample);
