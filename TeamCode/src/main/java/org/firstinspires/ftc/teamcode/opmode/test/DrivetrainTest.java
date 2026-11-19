@@ -41,7 +41,6 @@ public class DrivetrainTest extends RobotLinearOpMode {
             robot.odo.resetPosAndIMU();
 
             telemetry.addData("Odo status", robot.odo.statusDescription());
-            telemetry.addData("Odo fault", robot.odo.hasOdometryFault());
             telemetry.update();
 
             waitForStart();

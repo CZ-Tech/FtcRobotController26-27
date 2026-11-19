@@ -45,8 +45,6 @@ public class MixedOdo {
         this.useVisionLocate = useVisionLocate;
         this.pinpoint = robot.hardwareMap.get(GoBildaPinpointDriver.class, Globals.odoName);
 
-        boolean hardwareReset = !Globals.isPoseInitialized;
-
         pinpoint.setOffsets(Globals.odoXOffset, Globals.odoYOffset, DistanceUnit.MM);
         pinpoint.setEncoderResolution(Globals.odoType);
         pinpoint.setEncoderDirections(Globals.odoXDirection, Globals.odoYDirection);
@@ -65,9 +63,7 @@ public class MixedOdo {
             updateFieldPose(pinpoint.getPosition()); // 根据缓存的偏移量计算出当前位置
         }
         pinpoint.update();
-        Log.i("MixedOdo", "init hardwareReset=" + hardwareReset
-                + " vision=" + useVisionLocate
-                + " status=" + pinpoint.getDeviceStatus()
+        Log.i("MixedOdo", "init status=" + pinpoint.getDeviceStatus()
                 + " fw=" + pinpoint.getDeviceVersion()
                 + " ticks=(" + pinpoint.getEncoderX() + "," + pinpoint.getEncoderY() + ")"
                 + " rawInDeg=" + formatPose(pinpoint.getPosition()));
@@ -133,20 +129,6 @@ public class MixedOdo {
             sample.loopUs = pinpoint.getLoopTime();
         }
         return initialized ? currentFieldPose : raw;
-    }
-
-    /**
-     * True when the device itself reports a pod or IMU fault. A missing pod is not a noisy reading:
-     * that whole axis stays at zero, so a follower would keep asking for correction it can never see.
-     * The status is part of the normal bulk read, so this costs no extra I2C traffic.
-     */
-    public boolean hasOdometryFault() {
-        GoBildaPinpointDriver.DeviceStatus status = pinpoint.getDeviceStatus();
-        return status == GoBildaPinpointDriver.DeviceStatus.FAULT_X_POD_NOT_DETECTED
-                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_Y_POD_NOT_DETECTED
-                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_NO_PODS_DETECTED
-                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_IMU_RUNAWAY
-                || status == GoBildaPinpointDriver.DeviceStatus.FAULT_BAD_READ;
     }
 
     /** One-line device state for telemetry; reads the same cached bulk read as update(). */
