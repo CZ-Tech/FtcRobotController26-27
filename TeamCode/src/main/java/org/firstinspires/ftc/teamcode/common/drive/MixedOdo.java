@@ -135,6 +135,12 @@ public class MixedOdo {
                 || status == GoBildaPinpointDriver.DeviceStatus.FAULT_BAD_READ;
     }
 
+    /** One-line device state for telemetry; reads the same cached bulk read as update(). */
+    public String statusDescription() {
+        return pinpoint.getDeviceStatus() + " fw=" + pinpoint.getDeviceVersion()
+                + " ticks=(" + pinpoint.getEncoderX() + "," + pinpoint.getEncoderY() + ")";
+    }
+
     public Pose2D getPosition() {
         if (!Globals.isPoseInitialized) {
             // 如果还没初始化完，先返回原始里程计坐标（防止空指针或失控）

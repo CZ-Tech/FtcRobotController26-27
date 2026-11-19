@@ -19,6 +19,7 @@ import org.firstinspires.ftc.teamcode.common.opmode.RobotLinearOpMode;
 @TeleOp(name = "DrivetrainTest Test", group = "Test")
 public class DrivetrainTest extends RobotLinearOpMode {
     private static final double WHEEL_TEST_POWER = 0.25;
+    private final MixedOdo.PinpointSample sample = new MixedOdo.PinpointSample();
 
     @Override
     protected void runRobotOpMode() {
@@ -39,10 +40,14 @@ public class DrivetrainTest extends RobotLinearOpMode {
 
             robot.odo.resetPosAndIMU();
 
+            telemetry.addData("Odo status", robot.odo.statusDescription());
+            telemetry.addData("Odo fault", robot.odo.hasOdometryFault());
+            telemetry.update();
+
             waitForStart();
             runWhileActive(() -> {
 
-                robot.odo.update();
+                robot.odo.updateAndGetPosition(sample);
 
                 double axial = -gamepad1.left_stick_y;
                 double lateral = gamepad1.left_stick_x;
@@ -58,6 +63,8 @@ public class DrivetrainTest extends RobotLinearOpMode {
                 telemetry.addData("X (in)", "%.2f", pose.getX(DistanceUnit.INCH));
                 telemetry.addData("Y (in)", "%.2f", pose.getY(DistanceUnit.INCH));
                 telemetry.addData("Heading", "%.1f°", pose.getHeading(AngleUnit.DEGREES));
+                telemetry.addData("Odo status", String.valueOf(sample.status));
+                telemetry.addData("Odo ticks XY", "(%d, %d)", sample.xTicks, sample.yTicks);
                 telemetry.addData("Axial", "%.2f", axial);
                 telemetry.addData("Lateral", "%.2f", lateral);
                 telemetry.addData("Yaw", "%.2f", yaw);
