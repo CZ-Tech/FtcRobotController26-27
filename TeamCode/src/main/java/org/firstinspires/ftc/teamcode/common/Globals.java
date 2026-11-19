@@ -54,9 +54,9 @@ public class Globals {
     // ------------------------------------------------------------------
 
     public static DcMotor.Direction LeftFrontMotorDirection = DcMotor.Direction.FORWARD;
-    public static DcMotor.Direction RightFrontMotoDirection = DcMotor.Direction.FORWARD;
+    public static DcMotor.Direction RightFrontMotoDirection = DcMotor.Direction.REVERSE;
     public static DcMotor.Direction LeftBackMotorDirection = DcMotor.Direction.FORWARD;
-    public static DcMotor.Direction RightBackMotorDirection = DcMotor.Direction.FORWARD;
+    public static DcMotor.Direction RightBackMotorDirection = DcMotor.Direction.REVERSE;
 
     public static double TURN_GAIN = 0.0005;
     public static double STEER_GAIN = 0.02;
@@ -165,6 +165,8 @@ public class Globals {
 
         /** Verbose per-tick spline log output; diagnostics only. */
         public static volatile boolean LOG_VERBOSE = false;
+        /** Rate-limited SplineDiag Logcat capture. Sampled when a route OpMode initializes. */
+        public static volatile boolean LOGCAT_DIAGNOSTICS = true;
 
         /** Spline drivetrain zero-power behavior; FLOAT coasts when motor power is zero. */
         public static volatile DcMotor.ZeroPowerBehavior ZERO_POWER_BEHAVIOR =
@@ -192,7 +194,6 @@ public class Globals {
         public static volatile double K_CROSS_P = 0.10;
         public static volatile double K_CROSS_I = 0.0;
         public static volatile double K_CROSS_D = 0.010;
-        public static volatile double CROSS_I_MAX_POWER = 0.20;
         public static volatile double CROSS_D_ALPHA = 0.25;
 
         // Heading controller kept intentionally simple.
@@ -202,21 +203,11 @@ public class Globals {
         /** Low-pass filter for odometry-derived velocity. 1 = raw, smaller = smoother. */
         public static volatile double VELOCITY_FILTER_ALPHA = 0.35;
 
-        /** Translation command vector magnitude limit before sending to drivetrain. */
-        public static volatile double MAX_TRANSLATION_POWER = 1.0;
-
         // ------------------------------------------------------------------
         // Projection / geometry
         // ------------------------------------------------------------------
-        public static volatile int ARC_SAMPLES = 240;
-        public static volatile int PROJECTION_SAMPLES = 14;
-        public static volatile int NEWTON_ITERS = 4;
-
-        /** Search a little behind the previous projection, in path inches. */
-        public static volatile double PROJECTION_BACKTRACK_IN = 3.0;
-
-        /** Search ahead of the previous projection, in path inches. */
-        public static volatile double PROJECTION_FORWARD_IN = 18.0;
+        /** Equal-arc projection chords per segment; applied when a segment starts. */
+        public static volatile int ARC_SAMPLES = 1000;
 
         /** Used when spline derivative is ~0 at a Hermite endpoint. */
         public static volatile double TANGENT_SAMPLE_DU = 0.01;

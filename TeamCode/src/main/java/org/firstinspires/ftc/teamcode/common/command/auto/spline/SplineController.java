@@ -5,11 +5,12 @@ package org.firstinspires.ftc.teamcode.common.command.auto.spline;
  * control tick; the caller owns the clock, odometry, motor output and stall timer.
  */
 public final class SplineController {
+    /** Conservative fail-stop bound, not a tracking gain or an auto-recovery radius. */
+    public static final double MAX_PROJECTION_TANGENT_ERROR_IN = 3.0;
     /** Tuning snapshot supplied by the FTC adapter each tick (dashboard values stay live). */
     public static final class Parameters {
-        public int projectionSamples, newtonIterations;
-        public double projectionBacktrackIn, projectionForwardIn, tangentSampleDu;
-        public double crossP, crossI, crossD, crossIMaxPower, crossDAlpha;
+        public double tangentSampleDu;
+        public double crossP, crossI, crossD, crossDAlpha;
         public double headingP, turnDeadArea;
         public double safeBrakeDecel, brakeReversePower, brakeFilterTauS;
         public double speedLimitKp, speedLimitFullPowerBelowInS, speedLimitMaxReversePower;
@@ -17,7 +18,7 @@ public final class SplineController {
         public double stopCaptureKp, stopCaptureMaxPower;
         public double stopPosThresholdIn, stopHeadingThresholdDeg, stopSpeedThresholdInS;
         public double endUThreshold, passMaxCrossErrorIn;
-        public double motorVoltage, voltageCompWeight, maxTranslationPower;
+        public double motorVoltage, voltageCompWeight;
     }
 
     /** Measurement passed by the FTC adapter; field coordinates in inches. */
@@ -43,12 +44,23 @@ public final class SplineController {
         public final double closestU, progressS, crossError, tangentialVelocity;
         public final double tangentPower, crossPower, endPositionError;
         public final boolean brakingZone, stopCapture, arrived;
+        public final double projectionTangentError;
+        public final boolean projectionFault;
+        // Pre-guard data from this exact tick, including when output power is suppressed.
+        public final SplineGeometry.Projection projection;
+        public final double previousU, remainingArc, brakeTriggerDistance;
+        public final boolean brakeReverseRequested;
+        public final double candidateTangentPower, candidateCrossPower;
 
         private Output(double powerX, double powerY, double yawPower,
                        double pathX, double pathY, double targetHeading, double headingError,
                        double closestU, double progressS, double crossError, double tangentialVelocity,
                        double tangentPower, double crossPower, double endPositionError,
-                       boolean brakingZone, boolean stopCapture, boolean arrived) {
+                       boolean brakingZone, boolean stopCapture, boolean arrived,
+                       double projectionTangentError, boolean projectionFault,
+                       SplineGeometry.Projection projection, double previousU, double remainingArc,
+                       double brakeTriggerDistance, boolean brakeReverseRequested,
+                       double candidateTangentPower, double candidateCrossPower) {
             this.powerX = powerX;
             this.powerY = powerY;
             this.yawPower = yawPower;
@@ -66,6 +78,15 @@ public final class SplineController {
             this.brakingZone = brakingZone;
             this.stopCapture = stopCapture;
             this.arrived = arrived;
+            this.projectionTangentError = projectionTangentError;
+            this.projectionFault = projectionFault;
+            this.projection = projection;
+            this.previousU = previousU;
+            this.remainingArc = remainingArc;
+            this.brakeTriggerDistance = brakeTriggerDistance;
+            this.brakeReverseRequested = brakeReverseRequested;
+            this.candidateTangentPower = candidateTangentPower;
+            this.candidateCrossPower = candidateCrossPower;
         }
     }
 
@@ -88,7 +109,7 @@ public final class SplineController {
     private double segmentMaxPower, segmentMaxSpeed, segmentEndSpeed;
     private double segmentBrakeZoneIn, segmentBrakeForwardPower;
     private double brakeFilteredPower;
-    private boolean wasInBrakeZone, stopCapture;
+    private boolean wasInBrakeZone, stopCapture, projectionFault;
     private double closestU, progressS;
 
     public void resetCrossPid() { crossPID.reset(); }
@@ -114,6 +135,7 @@ public final class SplineController {
         segmentBrakeForwardPower = brakeForwardPower;
         wasInBrakeZone = false;
         stopCapture = false;
+        projectionFault = false;
         closestU = 0;
         progressS = 0;
     }
@@ -123,23 +145,26 @@ public final class SplineController {
     }
 
     public Output update(Input input, Parameters p) {
+        if (!Double.isFinite(input.x) || !Double.isFinite(input.y)
+                || !Double.isFinite(input.heading) || !Double.isFinite(input.vx)
+                || !Double.isFinite(input.vy)) {
+            throw new IllegalArgumentException("Non-finite motion measurement");
+        }
         double rx = input.x;
         double ry = input.y;
         double curH = input.heading;
         double dt = input.dt;
 
-        closestU = geometry.closestU(rx, ry, closestU,
-                p.projectionBacktrackIn, p.projectionForwardIn,
-                p.projectionSamples, p.newtonIterations);
-        double closestS = geometry.sAtU(closestU);
-        if (closestS > progressS) progressS = closestS;
+        double previousU = closestU;
+        SplineGeometry.Projection projection = geometry.project(rx, ry, previousU);
+        closestU = projection.u;
+        if (projection.s > progressS) progressS = projection.s;
         double progressU = geometry.uAtS(progressS);
 
-        double pathX = geometry.xAt(closestU);
-        double pathY = geometry.yAt(closestU);
-        double[] tangent = geometry.unitTangent(closestU, p.tangentSampleDu);
-        double tx = tangent[0];
-        double ty = tangent[1];
+        double pathX = projection.x;
+        double pathY = projection.y;
+        double tx = projection.tx;
+        double ty = projection.ty;
         double nx = -ty;
         double ny = tx;
 
@@ -147,7 +172,19 @@ public final class SplineController {
         double tangentialVel = input.vx * tx + input.vy * ty;
         double remainingArc = Math.max(0, geometry.totalLength() - progressS);
         double speedMag = Math.hypot(input.vx, input.vy);
-        double tangentPower = tangentialPower(tangentialVel, remainingArc, dt, p);
+        boolean autoBrakeZone = Double.isNaN(segmentBrakeZoneIn);
+        double forwardSpeed = Math.max(0, tangentialVel);
+        double triggerDistance = brakeTriggerDistance(forwardSpeed, autoBrakeZone, p);
+        // The automatic zone follows the current speed until entered, then stays
+        // active so deceleration does not make the zone shrink out from under us.
+        boolean inBrakeZone = !Double.isNaN(segmentEndSpeed)
+                && (autoBrakeZone
+                    ? wasInBrakeZone || (forwardSpeed > segmentEndSpeed
+                            && remainingArc <= triggerDistance)
+                    : remainingArc <= segmentBrakeZoneIn);
+        boolean reverse = inBrakeZone && forwardSpeed > segmentEndSpeed
+                && triggerDistance >= remainingArc;
+        double tangentPower = tangentialPower(tangentialVel, dt, p, inBrakeZone, reverse);
 
         double motorPowerGain = 1.0;
         if (input.voltage > 1e-6) {
@@ -175,9 +212,11 @@ public final class SplineController {
         } else {
             crossPower = computePID(crossError, dt, p, crossPID);
         }
+        double candidateTangentPower = tangentPower;
+        double candidateCrossPower = crossPower;
 
-        tangentPower = clip(tangentPower, -1, 1);
-        crossPower = clip(crossPower, -1, 1);
+        // Preserve the tangent/normal ratio. Only the drivetrain normalizes
+        // the combined wheel requests to the physical motor range.
         double targetH = SplineGeometry.eval(headingSpline, progressU);
         double headingError = angleDiff(targetH, curH);
         double yawPower = headingPowerFromError(headingError, p.headingP, p.turnDeadArea);
@@ -187,15 +226,6 @@ public final class SplineController {
         powerX *= motorPowerGain;
         powerY *= motorPowerGain;
         yawPower *= motorPowerGain;
-
-        double translationMag = Math.hypot(powerX, powerY);
-        double maxTranslation = clip(p.maxTranslationPower, 0, 1);
-        if (translationMag > maxTranslation && translationMag > 1e-9) {
-            double scale = maxTranslation / translationMag;
-            powerX *= scale;
-            powerY *= scale;
-        }
-        yawPower = clip(yawPower, -1, 1);
 
         boolean done;
         if (isStopPoint()) {
@@ -211,16 +241,35 @@ public final class SplineController {
             done = closestU >= p.endUThreshold && crossedNormal >= 0
                     && Math.abs(crossAtEnd) <= p.passMaxCrossErrorIn;
         }
+        // An interior nearest point has zero tangential residual. A constrained
+        // or inaccurate projection need not: normal-only control would ignore
+        // that displacement and could keep cruising away from its reference.
+        // Allow a valid pass-through handoff, but never silently resume a fault.
+        double projectionTangentError = (pathX - rx) * tx + (pathY - ry) * ty;
+        if (!done && (!Double.isFinite(projectionTangentError)
+                || Math.abs(projectionTangentError) > MAX_PROJECTION_TANGENT_ERROR_IN)) {
+            projectionFault = true;
+        }
+        if (projectionFault) {
+            powerX = powerY = yawPower = 0;
+            tangentPower = crossPower = 0;
+            done = false;
+        }
         return new Output(powerX, powerY, yawPower,
                 pathX, pathY, targetH, headingError, closestU, progressS,
                 crossError, tangentialVel, tangentPower, crossPower, endPosError,
-                wasInBrakeZone, stopCapture, done);
+                wasInBrakeZone, stopCapture, done, projectionTangentError, projectionFault,
+                projection, previousU, remainingArc, triggerDistance, reverse,
+                candidateTangentPower, candidateCrossPower);
     }
 
     public static double angleDiff(double target, double current) {
-        double diff = target - current;
-        while (diff > 180) diff -= 360;
-        while (diff <= -180) diff += 360;
+        if (!Double.isFinite(target) || !Double.isFinite(current)) {
+            throw new IllegalArgumentException("Non-finite heading");
+        }
+        double diff = (target % 360 - current % 360) % 360;
+        if (diff > 180) diff -= 360;
+        if (diff <= -180) diff += 360;
         return diff;
     }
 
@@ -239,11 +288,6 @@ public final class SplineController {
         }
         if (p.crossI != 0) {
             state.integral += error * dt;
-            double iTerm = p.crossI * state.integral;
-            if (p.crossIMaxPower > 0) {
-                double clipped = clip(iTerm, -p.crossIMaxPower, p.crossIMaxPower);
-                if (clipped != iTerm) state.integral = clipped / p.crossI;
-            }
         } else {
             state.integral = 0;
         }
@@ -253,34 +297,27 @@ public final class SplineController {
                 + (1 - alpha) * state.filteredDerivative;
         state.lastError = error;
         double iTerm = p.crossI * state.integral;
-        if (p.crossIMaxPower > 0) iTerm = clip(iTerm, -p.crossIMaxPower, p.crossIMaxPower);
         return p.crossP * error + iTerm + p.crossD * state.filteredDerivative;
     }
 
-    private double tangentialPower(double tangentialVel, double remainingArc, double dt, Parameters p) {
-        boolean autoBrakeZone = Double.isNaN(segmentBrakeZoneIn);
-        double forwardSpeed = Math.max(0, tangentialVel);
+    private double brakeTriggerDistance(double forwardSpeed, boolean autoBrakeZone, Parameters p) {
         double brakeDistance = 0;
         if (!Double.isNaN(segmentEndSpeed)) {
             double excessSpeedSq = Math.max(0,
                     forwardSpeed * forwardSpeed - segmentEndSpeed * segmentEndSpeed);
             brakeDistance = excessSpeedSq / (2 * Math.max(1e-3, p.safeBrakeDecel));
         }
-        // The automatic zone follows the current speed until entered, then stays
-        // active so deceleration does not make the zone shrink out from under us.
-        double triggerDistance = autoBrakeZone ? brakeDistance * 1.05 : brakeDistance;
-        boolean inBrakeZone = !Double.isNaN(segmentEndSpeed)
-                && (autoBrakeZone
-                    ? wasInBrakeZone || (forwardSpeed > segmentEndSpeed
-                            && remainingArc <= triggerDistance)
-                    : remainingArc <= segmentBrakeZoneIn);
+        return autoBrakeZone ? brakeDistance * 1.05 : brakeDistance;
+    }
+
+    private double tangentialPower(double tangentialVel, double dt, Parameters p,
+                                   boolean inBrakeZone, boolean reverse) {
         double request;
         if (!inBrakeZone) {
             wasInBrakeZone = false;
             request = segmentMaxPower;
         } else {
-            boolean brake = forwardSpeed > segmentEndSpeed && triggerDistance >= remainingArc;
-            request = brake ? -clip(p.brakeReversePower, 0, 1) : segmentBrakeForwardPower;
+            request = reverse ? -clip(p.brakeReversePower, 0, 1) : segmentBrakeForwardPower;
             if (!wasInBrakeZone) {
                 brakeFilteredPower = request;
                 wasInBrakeZone = true;
@@ -297,7 +334,7 @@ public final class SplineController {
                     -Math.max(0, p.speedLimitMaxReversePower), segmentMaxPower);
             request = Math.min(request, speedLimitedPower);
         }
-        return clip(request, -1, 1);
+        return request;
     }
 
     private static double clip01(double x) { return Math.max(0, Math.min(1, x)); }

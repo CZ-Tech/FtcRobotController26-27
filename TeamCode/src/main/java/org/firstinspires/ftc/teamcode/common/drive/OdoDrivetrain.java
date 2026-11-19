@@ -66,7 +66,17 @@ public class OdoDrivetrain {
 
     public static double VOLTAGE = 12;
 
+    /** Optional caller-owned record of the exact command sent, not measured motor output. */
+    public static final class DriveTrace {
+        public double headingRad, forward, right, yaw, denominator;
+        public double lf, rf, lb, rb;
+    }
+
     public void driveRobot(double axial, double lateral, double yaw) {
+        driveRobot(axial, lateral, yaw, null);
+    }
+
+    private void driveRobot(double axial, double lateral, double yaw, DriveTrace trace) {
         // Combine the joystick requests for each axis-motion to determine each wheel's power.
         // Set up a variable for each drive wheel to save the power level for telemetry.
         // Denominator is the largest motor power (absolute value) or 1
@@ -91,7 +101,7 @@ public class OdoDrivetrain {
          *                 / ______ \
          * ------------.-'   _  '-..+              Front of Bot
          *           /   _  ( Y )  _  \                  ^
-         * |  ( X )  _  ( B ) |      Left Front  \    Right Front
+         *          |  ( X )  _  ( B ) |      Left Front  \    Right Front
          *     ___  '.      ( A )     /|       Wheel       \       Wheel
          *  .'    '.    '-._____.-'  .'       (x/▢)        \       (Y/Δ)
          * |       |                 |                      \
@@ -116,6 +126,16 @@ public class OdoDrivetrain {
 
         double MOTOR_GAIN = Math.abs(VOLTAGE / robot.getVoltage());
         setDrivePower(powerLeftFront, powerRightFront, powerLeftBack, powerRightBack);
+        if (trace != null) {
+            trace.forward = axial;
+            trace.right = lateral;
+            trace.yaw = yaw;
+            trace.denominator = denominator;
+            trace.lf = powerLeftFront;
+            trace.rf = powerRightFront;
+            trace.lb = powerLeftBack;
+            trace.rb = powerRightBack;
+        }
     }
 
     public double getHeading(AngleUnit angleUnit) {
@@ -140,12 +160,17 @@ public class OdoDrivetrain {
     }
 
     public void driveRobotFieldCentric(double axial, double lateral, double yaw) {
+        driveRobotFieldCentric(axial, lateral, yaw, null);
+    }
+
+    public void driveRobotFieldCentric(double axial, double lateral, double yaw, DriveTrace trace) {
         double botHeading = robot.odo.getHeading(AngleUnit.RADIANS);
         robot.telemetry.addData("heading", botHeading);
         // Rotate the movement direction counter to the bot's rotation
         double rotX = lateral * Math.cos(-botHeading) - axial * Math.sin(-botHeading);
         double rotY = lateral * Math.sin(-botHeading) + axial * Math.cos(-botHeading);
-        driveRobot(rotY, rotX, yaw);
+        if (trace != null) trace.headingRad = botHeading;
+        driveRobot(rotY, rotX, yaw, trace);
     }
 
     public void driveRobotFieldCentricWithTeleOpHeadReset(double axial, double lateral, double yaw) {

@@ -9,6 +9,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.Globals;
 import org.firstinspires.ftc.teamcode.common.command.auto.RouteCommandDispatcher;
+import org.firstinspires.ftc.teamcode.common.command.auto.SplineDiagnostics;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTracker;
 import org.firstinspires.ftc.teamcode.common.command.auto.SplineTrajectoryLoader;
 import org.firstinspires.ftc.teamcode.common.drive.MixedOdo;
@@ -48,7 +49,8 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         Globals.isPoseInitialized = true;
 
         RobotNetworkV2 network = RobotNetworkService.get();
-        SplineTracker tracker = new SplineTracker(robot);
+        SplineDiagnostics diagnostics = new SplineDiagnostics(Globals.Auto.LOGCAT_DIAGNOSTICS);
+        SplineTracker tracker = new SplineTracker(robot, diagnostics);
         SplineTrajectoryLoader loader = new SplineTrajectoryLoader(tracker);
         // One waypoint list runs sequentially on one managed task; later points may overlap.
         // The catalog is the same one served to remote command clients.
@@ -71,10 +73,13 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
 
         waitForStart();
         if (!opModeIsActive()) {
-            publishInactive(network, robot);
+            publishInactive(network, robot, diagnostics, -1);
             return;
         }
 
+        if (diagnostics.enabled()) {
+            diagnostics.event("ROUTE_START", System.nanoTime(), "name=" + routeName);
+        }
         SplineTrajectoryLoader.ExecutionResult started = loader.start(route.json);
         if (started.terminal()) {
             // A route that cannot be parsed or is empty is an error, not "nothing to do".
@@ -82,7 +87,10 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
             telemetry.addData("Error", started.status + ": " + started.message);
             telemetry.update();
             requestOpModeStop();
-            publishInactive(network, robot);
+            publishInactive(network, robot, diagnostics, loader.getCurrentFrameIndex());
+            if (diagnostics.enabled()) {
+                diagnostics.event("ROUTE_END", System.nanoTime(), "result=" + started);
+            }
             return;
         }
         network.execution.publish(
@@ -90,6 +98,7 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                 0,
                 routeName);
 
+        String commandFailure = null;
         try {
             runWhileActive(() -> {
                 if (loader.isRunning()) {
@@ -134,6 +143,10 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                         pose.getX(DistanceUnit.INCH),
                         pose.getY(DistanceUnit.INCH),
                         pose.getHeading(AngleUnit.DEGREES));
+                if (diagnostics.enabled()) {
+                    diagnostics.publishedPose(network.runtime.latest(), robot.odo.getLastRawFieldInput(),
+                            loader.getCurrentFrameIndex());
+                }
 
                 telemetry.addData("Route", routeName);
                 telemetry.addData("Execution", network.execution.snapshot().state);
@@ -141,19 +154,29 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                 telemetry.update();
             });
         } catch (RouteAborted aborted) {
-            Log.e(TAG, "Route '" + routeName + "' aborted: " + aborted.getMessage());
+            commandFailure = aborted.getMessage();
+            Log.e(TAG, "Route '" + routeName + "' aborted: " + commandFailure);
             telemetry.addData("Aborted", aborted.getMessage());
             telemetry.update();
             requestOpModeStop();
         } finally {
+            SplineTrajectoryLoader.ExecutionResult result = loader.getLastResult();
+            int frame = loader.getCurrentFrameIndex();
             loader.cancel();
             tracker.stopMotor();
             network.execution.publish(ExecutionStateStore.State.NOT_READY, 0, null);
-            publishInactive(network, robot);
+            publishInactive(network, robot, diagnostics, frame);
+            if (diagnostics.enabled()) {
+                diagnostics.event("ROUTE_END", System.nanoTime(), "result=" + result
+                        + " cleanupStatus=" + loader.getStatus()
+                        + (commandFailure == null ? "" : " commandFailure=" + commandFailure));
+            }
         }
     }
 
-    private static void publishInactive(RobotNetworkV2 network, Robot robot) {
+    private static void publishInactive(RobotNetworkV2 network, Robot robot,
+                                        SplineDiagnostics diagnostics, int frame) {
+        Pose2D raw = null;
         try {
             robot.odo.update();
             Pose2D pose = robot.odo.getPosition();
@@ -163,9 +186,11 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
                     pose.getX(DistanceUnit.INCH),
                     pose.getY(DistanceUnit.INCH),
                     pose.getHeading(AngleUnit.DEGREES));
+            raw = robot.odo.getLastRawFieldInput();
         } catch (Exception ignored) {
             network.runtime.publish(false, null, 0, 0, 0);
         }
+        if (diagnostics.enabled()) diagnostics.publishedPose(network.runtime.latest(), raw, frame);
     }
 
     /** Fatal waypoint-command failure; unwinds {@code runWhileActive} immediately. */

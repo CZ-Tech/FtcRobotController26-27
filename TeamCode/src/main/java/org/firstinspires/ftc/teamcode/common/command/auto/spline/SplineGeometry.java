@@ -1,23 +1,48 @@
 package org.firstinspires.ftc.teamcode.common.command.auto.spline;
 
 /**
- * One immutable cubic Hermite segment with a sampled arc-length lookup table.
+ * Immutable cubic Hermite segment with an equal-arc-length projection polyline.
  * Coordinates and tangent parameters are in inches; u is dimensionless.
  * No Android or robot hardware dependency.
  */
 public final class SplineGeometry {
-    private final double[] sx;
-    private final double[] sy;
+    private final double[] sx, sy;
     private final double[] cumulative;
     private final int n;
     private final double total;
+    private final double[] sampleX, sampleY, sampleU;
+    private final int segments;
+
+    /** Nearest point on the entire sampled polyline, not just a local window. */
+    public static final class Projection {
+        public final double u, x, y, s, tx, ty, distanceSq;
+
+        private Projection(double u, double x, double y, double s,
+                           double tx, double ty, double distanceSq) {
+            this.u = u;
+            this.x = x;
+            this.y = y;
+            this.s = s;
+            this.tx = tx;
+            this.ty = ty;
+            this.distanceSq = distanceSq;
+        }
+    }
 
     public SplineGeometry(double x0, double y0, double dx0, double dy0,
                           double x1, double y1, double dx1, double dy1,
-                          int arcSamples) {
+                          int projectionSegments) {
+        if (!Double.isFinite(x0) || !Double.isFinite(y0)
+                || !Double.isFinite(dx0) || !Double.isFinite(dy0)
+                || !Double.isFinite(x1) || !Double.isFinite(y1)
+                || !Double.isFinite(dx1) || !Double.isFinite(dy1)) {
+            throw new IllegalArgumentException("Non-finite spline geometry");
+        }
         sx = hermite(x0, dx0, x1, dx1);
         sy = hermite(y0, dy0, y1, dy1);
-        n = Math.max(40, arcSamples);
+        // Bound configuration mistakes as well as the work done in each control tick.
+        segments = Math.max(40, Math.min(10000, projectionSegments));
+        n = Math.max(1000, segments * 4);
         cumulative = new double[n + 1];
         double px = xAt(0);
         double py = yAt(0);
@@ -30,6 +55,18 @@ public final class SplineGeometry {
             py = cy;
         }
         total = cumulative[n];
+        if (!Double.isFinite(total)) {
+            throw new IllegalArgumentException("Spline geometry overflow");
+        }
+        sampleX = new double[segments + 1];
+        sampleY = new double[segments + 1];
+        sampleU = new double[segments + 1];
+        for (int i = 0; i <= segments; i++) {
+            double u = i == segments ? 1 : uAtS(total * i / segments);
+            sampleU[i] = u;
+            sampleX[i] = xAt(u);
+            sampleY[i] = yAt(u);
+        }
     }
 
     public static double[] hermite(double x0, double dx0, double x1, double dx1) {
@@ -46,13 +83,10 @@ public final class SplineGeometry {
         return 3 * spline[0] * u * u + 2 * spline[1] * u + spline[2];
     }
 
-    private static double secondDerivative(double[] spline, double u) {
-        return 6 * spline[0] * u + 2 * spline[1];
-    }
-
     public double xAt(double u) { return eval(sx, u); }
     public double yAt(double u) { return eval(sy, u); }
     public double totalLength() { return total; }
+    public int projectionSegmentCount() { return segments; }
 
     public double sAtU(double u) {
         u = clip01(u);
@@ -79,61 +113,55 @@ public final class SplineGeometry {
         return (lo + f) / n;
     }
 
-    /** Local coarse search followed by Newton projection; preserves previous window semantics. */
-    public double closestU(double rx, double ry, double previousU,
-                           double backtrackIn, double forwardIn,
-                           int projectionSamples, int newtonIterations) {
-        double previousS = sAtU(previousU);
-        double lowU = uAtS(previousS - Math.max(0, backtrackIn));
-        double highU = uAtS(previousS + Math.max(0, forwardIn));
-        if (highU < lowU + 1e-6) {
-            lowU = Math.max(0, previousU - 0.05);
-            highU = Math.min(1, previousU + 0.10);
+    /**
+     * Fixed-cost global scan: project onto every chord and compare squared distances.
+     * previousU only breaks equal-distance ties; it never limits the search range.
+     * Exactly one result object is allocated, with no per-chord allocations or square roots.
+     */
+    public Projection project(double rx, double ry, double previousU) {
+        if (!Double.isFinite(rx) || !Double.isFinite(ry) || !Double.isFinite(previousU)) {
+            throw new IllegalArgumentException("Non-finite projection input");
         }
-
-        int samples = Math.max(4, projectionSamples);
-        double bestU = lowU;
         double bestD2 = Double.POSITIVE_INFINITY;
-        for (int i = 0; i <= samples; i++) {
-            double u = lowU + (highU - lowU) * i / samples;
-            double ex = xAt(u) - rx;
-            double ey = yAt(u) - ry;
+        double bestT = 0;
+        double bestU = 0;
+        double bestX = sampleX[0], bestY = sampleY[0];
+        int bestIndex = 0;
+        for (int i = 0; i < segments; i++) {
+            double dx = sampleX[i + 1] - sampleX[i];
+            double dy = sampleY[i + 1] - sampleY[i];
+            double lengthSq = dx * dx + dy * dy;
+            double t = lengthSq > 0
+                    ? clip01(((rx - sampleX[i]) * dx + (ry - sampleY[i]) * dy) / lengthSq)
+                    : 0;
+            double x = sampleX[i] + t * dx;
+            double y = sampleY[i] + t * dy;
+            double ex = x - rx, ey = y - ry;
             double d2 = ex * ex + ey * ey;
-            if (d2 < bestD2) {
+            double u = sampleU[i] + t * (sampleU[i + 1] - sampleU[i]);
+            if (d2 < bestD2 - 1e-12 || (Math.abs(d2 - bestD2) <= 1e-12
+                    && Math.abs(u - previousU) < Math.abs(bestU - previousU))) {
                 bestD2 = d2;
+                bestT = t;
                 bestU = u;
+                bestX = x;
+                bestY = y;
+                bestIndex = i;
             }
         }
-
-        double u = bestU;
-        for (int i = 0; i < Math.max(1, newtonIterations); i++) {
-            double px = xAt(u);
-            double py = yAt(u);
-            double dxdu = derivative(sx, u);
-            double dydu = derivative(sy, u);
-            double ddxdu = secondDerivative(sx, u);
-            double ddydu = secondDerivative(sy, u);
-            double ex = px - rx;
-            double ey = py - ry;
-            double f = ex * dxdu + ey * dydu;
-            double df = dxdu * dxdu + dydu * dydu + ex * ddxdu + ey * ddydu;
-            if (Math.abs(df) < 1e-9) break;
-            u -= f / df;
-            u = clip(u, lowU, highU);
+        double tx = sampleX[bestIndex + 1] - sampleX[bestIndex];
+        double ty = sampleY[bestIndex + 1] - sampleY[bestIndex];
+        double length = Math.hypot(tx, ty);
+        if (length > 0) {
+            tx /= length;
+            ty /= length;
+        } else {
+            double[] tangent = unitTangent(bestU, 0.01);
+            tx = tangent[0];
+            ty = tangent[1];
         }
-
-        double d0 = distanceSq(rx, ry, u);
-        double dl = distanceSq(rx, ry, lowU);
-        double dh = distanceSq(rx, ry, highU);
-        if (dl < d0 && dl <= dh) return lowU;
-        if (dh < d0) return highU;
-        return u;
-    }
-
-    private double distanceSq(double rx, double ry, double u) {
-        double ex = xAt(u) - rx;
-        double ey = yAt(u) - ry;
-        return ex * ex + ey * ey;
+        double s = total * (bestIndex + bestT) / segments;
+        return new Projection(uAtS(s), bestX, bestY, s, tx, ty, bestD2);
     }
 
     /** Unit tangent in increasing-u direction, including at zero-derivative endpoints. */
@@ -163,7 +191,4 @@ public final class SplineGeometry {
     }
 
     private static double clip01(double x) { return Math.max(0, Math.min(1, x)); }
-    private static double clip(double x, double low, double high) {
-        return Math.max(low, Math.min(high, x));
-    }
 }

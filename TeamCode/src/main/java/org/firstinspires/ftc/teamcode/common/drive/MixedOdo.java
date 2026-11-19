@@ -126,8 +126,16 @@ public class MixedOdo {
     /**
      * 核心数学：计算当前的真实场地坐标
      */
+    private Pose2D lastRawFieldInput;
+
+    /** Cached raw input of the most recent field-pose calculation; no hardware read. */
+    public Pose2D getLastRawFieldInput() {
+        return lastRawFieldInput;
+    }
+
     private void updateFieldPose() {
         Pose2D rawOdom = pinpoint.getPosition();
+        lastRawFieldInput = rawOdom;
         double rawX = rawOdom.getX(DistanceUnit.METER);
         double rawY = rawOdom.getY(DistanceUnit.METER);
         double rawHeading = rawOdom.getHeading(AngleUnit.RADIANS);
