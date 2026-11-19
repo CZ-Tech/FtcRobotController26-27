@@ -144,12 +144,37 @@ public final class SplineController {
         double ny = tx;
 
         double crossError = (pathX - rx) * nx + (pathY - ry) * ny;
-        double crossPower = computePID(crossError, dt, p, crossPID);
         double tangentialVel = input.vx * tx + input.vy * ty;
         double remainingArc = Math.max(0, geometry.totalLength() - progressS);
         double speedMag = Math.hypot(input.vx, input.vy);
-        double tangentPower = tangentialPower(tangentialVel, speedMag, remainingArc,
-                rx, ry, tx, ty, dt, p);
+        double tangentPower = tangentialPower(tangentialVel, remainingArc, dt, p);
+
+        double motorPowerGain = 1.0;
+        if (input.voltage > 1e-6) {
+            double rawGain = Math.abs(p.motorVoltage / input.voltage);
+            motorPowerGain = 1.0 + (rawGain - 1.0) * p.voltageCompWeight;
+        }
+        double dx = endX - rx, dy = endY - ry;
+        double endPosError = Math.hypot(dx, dy);
+        if (!stopCapture && isStopPoint() && remainingArc <= p.stopCaptureDistanceIn
+                && speedMag <= p.stopCaptureEntrySpeedInS) {
+            stopCapture = true;
+            resetCrossPid();
+        }
+        double crossPower;
+        if (stopCapture) {
+            // Capture targets the endpoint, not the nearest path point. Use one gain
+            // in both axes so neither curvature nor saturation can rotate the request.
+            double limit = Math.min(segmentMaxPower, clip01(p.stopCaptureMaxPower));
+            // Apply the radial limit to the whole translation, including any voltage boost.
+            double maxRequest = limit / Math.max(1.0, motorPowerGain);
+            double gain = endPosError == 0 ? 0 : Math.min(Math.max(0, p.stopCaptureKp),
+                    maxRequest / endPosError);
+            tangentPower = gain * (dx * tx + dy * ty);
+            crossPower = gain * (dx * nx + dy * ny);
+        } else {
+            crossPower = computePID(crossError, dt, p, crossPID);
+        }
 
         tangentPower = clip(tangentPower, -1, 1);
         crossPower = clip(crossPower, -1, 1);
@@ -159,11 +184,6 @@ public final class SplineController {
         double powerX = tangentPower * tx + crossPower * nx;
         double powerY = tangentPower * ty + crossPower * ny;
 
-        double motorPowerGain = 1.0;
-        if (input.voltage > 1e-6) {
-            double rawGain = Math.abs(p.motorVoltage / input.voltage);
-            motorPowerGain = 1.0 + (rawGain - 1.0) * p.voltageCompWeight;
-        }
         powerX *= motorPowerGain;
         powerY *= motorPowerGain;
         yawPower *= motorPowerGain;
@@ -177,7 +197,6 @@ public final class SplineController {
         }
         yawPower = clip(yawPower, -1, 1);
 
-        double endPosError = Math.hypot(endX - rx, endY - ry);
         boolean done;
         if (isStopPoint()) {
             done = endPosError <= p.stopPosThresholdIn
@@ -238,9 +257,7 @@ public final class SplineController {
         return p.crossP * error + iTerm + p.crossD * state.filteredDerivative;
     }
 
-    private double tangentialPower(double tangentialVel, double speedMag,
-                                   double remainingArc, double rx, double ry,
-                                   double tx, double ty, double dt, Parameters p) {
+    private double tangentialPower(double tangentialVel, double remainingArc, double dt, Parameters p) {
         boolean autoBrakeZone = Double.isNaN(segmentBrakeZoneIn);
         double forwardSpeed = Math.max(0, tangentialVel);
         double brakeDistance = 0;
@@ -279,16 +296,6 @@ public final class SplineController {
             double speedLimitedPower = clip(p.speedLimitKp * (segmentMaxSpeed - tangentialVel),
                     -Math.max(0, p.speedLimitMaxReversePower), segmentMaxPower);
             request = Math.min(request, speedLimitedPower);
-        }
-        if (isStopPoint() && (stopCapture ||
-                (remainingArc <= p.stopCaptureDistanceIn
-                        && speedMag <= p.stopCaptureEntrySpeedInS))) {
-            stopCapture = true;
-            double[] endTangent = geometry.unitTangent(1.0, p.tangentSampleDu);
-            double alongError = (endX - rx) * endTangent[0]
-                    + (endY - ry) * endTangent[1];
-            request = clip(p.stopCaptureKp * alongError,
-                    -p.stopCaptureMaxPower, p.stopCaptureMaxPower);
         }
         return clip(request, -1, 1);
     }

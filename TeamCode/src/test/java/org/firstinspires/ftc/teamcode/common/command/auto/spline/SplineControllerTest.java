@@ -167,6 +167,71 @@ public class SplineControllerTest {
     }
 
     @Test
+    public void stopCaptureTracksHookEndpointOnEveryTick() {
+        double endX = -7.61, endY = 50.83;
+        SplineGeometry hooked = new SplineGeometry(46.15, 45.67, -4.76, -19.41,
+                endX, endY, -2.39, -15.47, 1000);
+        controller.startSegment(hooked, -179.97, -180, endX, endY,
+                1, Double.NaN, 0, Double.NaN, 0.30);
+        // Approach the hook fast enough to brake, but not to enter capture yet.
+        for (int i = 1; i <= 8; i++) {
+            double u = i / 10.0;
+            SplineController.Output approach = controller.update(new SplineController.Input(
+                    hooked.xAt(u), hooked.yAt(u), 180, -23, 0, 12, 0.02), p);
+            assertFalse(approach.stopCapture);
+        }
+        // At heading 180 the endpoint is ahead, slightly to the LEFT. The nearby
+        // path is to the right; its normal correction must not steer capture.
+        for (int i = 0; i <= 250; i++) {
+            double x = -5.30 - 0.002 * i, y = 50.90 + 0.0014 * i;
+            SplineController.Output out = controller.update(new SplineController.Input(
+                    x, y, 180, -0.10, 0.07, 12, 0.02), p);
+            assertTrue(out.brakingZone);
+            assertTrue(out.stopCapture);
+            assertFalse(out.arrived);
+            double dx = endX - x, dy = endY - y, distance = Math.hypot(dx, dy);
+            double magnitude = Math.min(p.stopCaptureKp * distance, p.stopCaptureMaxPower);
+            assertEquals(magnitude * dx / distance, out.powerX, 1e-9);
+            assertEquals(magnitude * dy / distance, out.powerY, 1e-9);
+        }
+    }
+
+    @Test
+    public void stopCaptureCapsCombinedTranslationEvenWithVoltageCompensation() {
+        p.voltageCompWeight = 1;
+        // Check both the capture limit and a lower per-segment limit.
+        for (double segmentLimit : new double[]{0.8, 0.10, 0}) {
+            controller.startSegment(straight, 0, 0, 20, 0,
+                    segmentLimit, Double.NaN, 0, 12, 0.2);
+            SplineController.Output out = controller.update(new SplineController.Input(
+                    18.4, 1.2, -10, 0, 0, 9, 0.02), p);
+            assertTrue(out.stopCapture);
+            double limit = Math.min(p.stopCaptureMaxPower, segmentLimit);
+            assertEquals(0.8 * limit, out.powerX, 1e-9);
+            assertEquals(-0.6 * limit, out.powerY, 1e-9);
+            assertEquals(0.2 * (12.0 / 9.0), out.yawPower, 1e-9);
+        }
+    }
+
+    @Test
+    public void stopCaptureReturnsFromOvershootAndCanTurnInPlaceAtEndpoint() {
+        start(0, 12);
+        at(16, 0, 8, 0); // Bring the projection within reach of the end.
+        SplineController.Output overshot = at(21.4, 0.8, 0, 0);
+        assertTrue(overshot.stopCapture);
+        assertFalse(overshot.arrived);
+        assertEquals(-1.4 * p.stopCaptureKp, overshot.powerX, 1e-9);
+        assertEquals(-0.8 * p.stopCaptureKp, overshot.powerY, 1e-9);
+        SplineController.Output turning = controller.update(new SplineController.Input(
+                20, 0, -10, 0, 0, 12, 0.02), p);
+        assertEquals(0, turning.powerX, 0);
+        assertEquals(0, turning.powerY, 0);
+        assertTrue(turning.yawPower > 0);
+        assertFalse(turning.arrived);
+        assertTrue(at(20, 0, 0, 0).arrived);
+    }
+
+    @Test
     public void speedLimitAndStopCaptureStillOverrideCruisePower() {
         controller.startSegment(straight, 0, 0, 20, 0,
                 0.8, 10, Double.NaN, 0, 0.2);
