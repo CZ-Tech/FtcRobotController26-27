@@ -45,6 +45,8 @@ public class MixedOdo {
         this.useVisionLocate = useVisionLocate;
         this.pinpoint = robot.hardwareMap.get(GoBildaPinpointDriver.class, Globals.odoName);
 
+        boolean hardwareReset = !Globals.isPoseInitialized;
+
         pinpoint.setOffsets(Globals.odoXOffset, Globals.odoYOffset, DistanceUnit.MM);
         pinpoint.setEncoderResolution(Globals.odoType);
         pinpoint.setEncoderDirections(Globals.odoXDirection, Globals.odoYDirection);
@@ -63,6 +65,18 @@ public class MixedOdo {
             updateFieldPose(pinpoint.getPosition()); // 根据缓存的偏移量计算出当前位置
         }
         pinpoint.update();
+        Log.i("MixedOdo", "init hardwareReset=" + hardwareReset
+                + " vision=" + useVisionLocate
+                + " status=" + pinpoint.getDeviceStatus()
+                + " fw=" + pinpoint.getDeviceVersion()
+                + " ticks=(" + pinpoint.getEncoderX() + "," + pinpoint.getEncoderY() + ")"
+                + " rawInDeg=" + formatPose(pinpoint.getPosition()));
+    }
+
+    private static String formatPose(Pose2D pose) {
+        return String.format(java.util.Locale.ROOT, "(%.4f,%.4f,%.4f)",
+                pose.getX(DistanceUnit.INCH), pose.getY(DistanceUnit.INCH),
+                pose.getHeading(AngleUnit.DEGREES));
     }
 
     public void reCollaborate() {

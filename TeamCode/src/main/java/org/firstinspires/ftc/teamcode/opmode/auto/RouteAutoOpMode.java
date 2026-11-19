@@ -79,7 +79,8 @@ public final class RouteAutoOpMode extends RobotLinearOpMode {
         }
 
         if (diagnostics.enabled()) {
-            diagnostics.event("ROUTE_START", System.nanoTime(), "name=" + routeName);
+            diagnostics.event("ROUTE_START", System.nanoTime(), "name=" + routeName
+                    + " odometry=" + robot.odo.statusDescription());
         }
         SplineTrajectoryLoader.ExecutionResult started = loader.start(route.json);
         if (started.terminal()) {
