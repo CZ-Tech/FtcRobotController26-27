@@ -49,6 +49,7 @@ public class Globals {
     public static String leftPullerServo = "lps";
     public static String rightPullerServo = "rps";
     public static String valve = "valve";
+    public static String transfer = "transfer";
     // ------------------------------------------------------------------
     // Drivetrain
     // ------------------------------------------------------------------
@@ -101,13 +102,14 @@ public class Globals {
     //  +               xOffset  |||  +
     //  +             <--------->     +
     //  +             ● Center        +
-    // FIXME:Center指的是机器的旋转中心
+    //   FIXME:Center指的是机器的旋转中心
     //  +             |               +
     //  +             | yOffset       +
     //  +             V               +
     //  +           =====             +
     //  +           =====             +
     //  +++++++++++++++++++++++++++++++
+    //
     public static double odoXOffset = -13.19;
     public static double odoYOffset = -5.86;  // -95.99872249
 

@@ -47,7 +47,13 @@ public class Solo extends RobotLinearOpMode {
             //shooter保持开启
 
             runWhileActive(() -> {
-
+                /*
+                FIXME
+                    键位表
+                    键位 │ 左右遥杆 │     左Bumper     │   右Bumper   │ 左Trigger │  dpadup&down
+                    ────┼─────────┼─────────────────┼──────────────┼───────────┼──────────────
+                    指令 │ 移动机器 │控制transfer（飞轮）│  控制intaker  │控制shooter│ 升或者降puller
+                 */
                 if ((gamepad1.options && gamepad1.shareWasPressed()) || (gamepad1.optionsWasPressed() && gamepad1.share)){
                     robot.odoDrivetrain.resetYaw();
                 }
@@ -87,6 +93,14 @@ public class Solo extends RobotLinearOpMode {
                 }
                 if (gamepad1.dpadLeftWasPressed()) robot.subsystem.shooter.setValveOpen();
                 if (gamepad1.dpadRightWasPressed()) robot.subsystem.shooter.setValveClose();
+
+                //控制飞轮版本的transfer
+                if (gamepad1.leftBumperWasPressed()){
+                    robot.subsystem.shooter.startTransfer();
+                }
+                if (gamepad1.leftBumperWasReleased()){
+                    robot.subsystem.shooter.stopTransfer();
+                }
 
                 //移动部分
                 robot.odo.update();

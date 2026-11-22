@@ -19,6 +19,7 @@ import org.firstinspires.ftc.teamcode.common.util.Param;
 public class Shooter implements SubsystemLifecycle {
 
     private final DcMotorEx shooterItself;
+    private final DcMotorEx transferItself;
     private final ServoImplEx valveItself;
     private boolean isRunning = false;
     static final double COUNTS_PER_MOTOR_REV = 28.0;
@@ -38,6 +39,8 @@ public class Shooter implements SubsystemLifecycle {
         valveItself = java.util.Objects.requireNonNull(
                 robot.hardwareMap.get(ServoImplEx.class, Globals.valve),
                 "Shooter motor is missing: " + Globals.valve);
+
+        transferItself = robot.hardwareMap.get(DcMotorEx.class,Globals.transfer);
 
         shooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         shooterItself.setMotorEnable();
@@ -96,7 +99,13 @@ public class Shooter implements SubsystemLifecycle {
         return shooterItself.getVelocity() * 60.0 / COUNTS_PER_MOTOR_REV;
     }
 
+    public void startTransfer(){
+        transferItself.setPower(1);
+    }
 
+    public void stopTransfer(){
+        transferItself.setPower(0);
+    }
 
     /** Always stop the motor on OpMode shutdown, including after plain direct calls. */
     @Override
