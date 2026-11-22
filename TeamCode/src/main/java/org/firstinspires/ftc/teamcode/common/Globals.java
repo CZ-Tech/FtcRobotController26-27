@@ -49,7 +49,7 @@ public class Globals {
     public static String leftPullerServo = "lps";
     public static String rightPullerServo = "rps";
     public static String valve = "valve";
-    public static String transfer = "transfer";
+    public static String transfer = "transfer";//FIXME 在expansion hub的三号电机口设置了transfer以便让代码正常运行，后面假如接线不同的话记得改
     // ------------------------------------------------------------------
     // Drivetrain
     // ------------------------------------------------------------------
