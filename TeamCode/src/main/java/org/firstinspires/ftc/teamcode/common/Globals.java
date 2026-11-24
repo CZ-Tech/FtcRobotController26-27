@@ -50,6 +50,8 @@ public class Globals {
     public static String rightPullerServo = "rps";
     public static String valve = "valve";
     public static String transfer = "transfer";//FIXME 在expansion hub的三号电机口设置了transfer以便让代码正常运行，后面假如接线不同的话记得改
+    public static String leftShooter = "ls";
+    public static String rightShooter = "rs";
     // ------------------------------------------------------------------
     // Drivetrain
     // ------------------------------------------------------------------
@@ -128,10 +130,10 @@ public class Globals {
     public static double diss_far = 3045;
     public static double diss_near = 2715;
 
-    public static double ShooterP = 30;  // 0.0003 0.0007
+    public static double ShooterP = 100;  // 0.0003 0.0007
     public static double ShooterI = 0.0;
     public static double ShooterD = 0.0; // 0.00005
-    public static double ShooterF = 15.0;
+    public static double ShooterF = 20.0;
     public static double Shoot_time = 2.15;
     public static double SHOOT_VEL_TOLERANCE = 120;
     public static double SHOOT_ACCEL_TOLERANCE = 500;

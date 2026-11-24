@@ -16,9 +16,12 @@ import org.firstinspires.ftc.teamcode.common.Robot;
 import org.firstinspires.ftc.teamcode.common.network.RemoteCommand;
 import org.firstinspires.ftc.teamcode.common.util.Param;
 
+import java.util.Objects;
+
 public class Shooter implements SubsystemLifecycle {
 
-    private final DcMotorEx shooterItself;
+    private final DcMotorEx leftShooterItself;
+    private final DcMotorEx rightShooterItself;
     private final DcMotorEx transferItself;
     private final ServoImplEx valveItself;
     private boolean isRunning = false;
@@ -28,42 +31,56 @@ public class Shooter implements SubsystemLifecycle {
     public volatile double valveCloseDegree = 0.166;
 
     public Shooter(Robot robot) {
-        shooterItself = java.util.Objects.requireNonNull(
-                robot.hardwareMap.get(DcMotorEx.class, Globals.Shooter),
-                "Shooter motor is missing: " + Globals.Shooter);
+        leftShooterItself = Objects.requireNonNull(
+                robot.hardwareMap.get(DcMotorEx.class, Globals.leftShooter),
+                "LeftShooter motor is missing: " + Globals.leftShooter);
 
-        shooterItself.setPower(0);
-        shooterItself.setDirection(DcMotorSimple.Direction.FORWARD);
+        leftShooterItself.setPower(0);
+        leftShooterItself.setDirection(DcMotorSimple.Direction.REVERSE);
+
+        rightShooterItself = Objects.requireNonNull(
+                robot.hardwareMap.get(DcMotorEx.class, Globals.rightShooter),
+                "RightShooter motor is missing: " + Globals.rightShooter);
+        rightShooterItself.setPower(0);
+        rightShooterItself.setDirection(DcMotorSimple.Direction.FORWARD);
+
         updatePIDF();
 
-        valveItself = java.util.Objects.requireNonNull(
+        valveItself = Objects.requireNonNull(
                 robot.hardwareMap.get(ServoImplEx.class, Globals.valve),
                 "Shooter motor is missing: " + Globals.valve);
 
         transferItself = robot.hardwareMap.get(DcMotorEx.class,Globals.transfer);
 
-        shooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        shooterItself.setMotorEnable();
-        shooterItself.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        leftShooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        leftShooterItself.setMotorEnable();
+        leftShooterItself.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+
+        rightShooterItself.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightShooterItself.setMotorEnable();
+        rightShooterItself.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
     }
 
     @RemoteCommand
     public void updatePIDF() {
         CommandTasks.checkCancelled();
         PIDFCoefficients pidf = new PIDFCoefficients(ShooterP, ShooterI, ShooterD, ShooterF);
-        shooterItself.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
+        leftShooterItself.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidf);
+        rightShooterItself.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER,pidf);
     }
     @RemoteCommand
     public void setPower(@Param("power") double power){
         CommandTasks.checkCancelled();
-        shooterItself.setPower(power);
+        leftShooterItself.setPower(power);
+        rightShooterItself.setPower(power);
     }
 
     @RemoteCommand
     public void setTargetVelocity(@Param("shooterRPM") double shooterRPM) {
         CommandTasks.checkCancelled();
         isRunning = true;
-        shooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
+        leftShooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
+        rightShooterItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
     }
 
     /** Valve and motor calls are independent ordinary Java operations. */
@@ -96,8 +113,17 @@ public class Shooter implements SubsystemLifecycle {
      */
     public double getMotorRPM() {
         CommandTasks.checkCancelled();
-        return shooterItself.getVelocity() * 60.0 / COUNTS_PER_MOTOR_REV;
+        return leftShooterItself.getVelocity() * 60.0 / COUNTS_PER_MOTOR_REV;
     }
+    public double getLeftMotorRPM() {
+        CommandTasks.checkCancelled();
+        return leftShooterItself.getVelocity() * 60.0 / COUNTS_PER_MOTOR_REV;
+    }
+    public double getRightMotorRPM() {
+        CommandTasks.checkCancelled();
+        return rightShooterItself.getVelocity() * 60.0 / COUNTS_PER_MOTOR_REV;
+    }
+
 
     public void startTransfer(){
         transferItself.setPower(1);
