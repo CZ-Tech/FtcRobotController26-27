@@ -12,13 +12,14 @@ import java.util.Objects;
 /** Intake hardware with ordinary synchronous methods; command entry owns the worker. */
 public class Intaker implements SubsystemLifecycle {
     private final DcMotorEx intakerItself;
-
+    private boolean isRunning = false;
+    static final double COUNTS_PER_MOTOR_REV = 28.0;
     public Intaker(Robot robot) {
         intakerItself = Objects.requireNonNull(
                 robot.hardwareMap.get(DcMotorEx.class, Globals.intaker),
                 "Intaker motor is missing: " + Globals.intaker);
         setIntakePower(0);
-        intakerItself.setDirection(DcMotorSimple.Direction.REVERSE);
+        intakerItself.setDirection(DcMotorSimple.Direction.FORWARD);
     }
 
     @RemoteCommand
@@ -27,6 +28,12 @@ public class Intaker implements SubsystemLifecycle {
         intakerItself.setPower(power);
     }
 
+    @RemoteCommand
+    public void setTargetVelocity(double shooterRPM) {
+        CommandTasks.checkCancelled();
+        isRunning = true;
+        intakerItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
+    }
     /** Blocks only its caller; direct aggregate calls naturally wait for completion. */
     @RemoteCommand
     public void setIntakerPower(@Param("power") double power, @Param("time") long time)

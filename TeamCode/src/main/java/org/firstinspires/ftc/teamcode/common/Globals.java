@@ -130,9 +130,9 @@ public class Globals {
     public static double diss_far = 3045;
     public static double diss_near = 2715;
 
-    public static double ShooterP = 100;  // 0.0003 0.0007
+    public static double ShooterP = 120;  // 0.0003 0.0007
     public static double ShooterI = 0.0;
-    public static double ShooterD = 0.0; // 0.00005
+    public static double ShooterD = 0.00005; // 0.00005
     public static double ShooterF = 20.0;
     public static double Shoot_time = 2.15;
     public static double SHOOT_VEL_TOLERANCE = 120;
