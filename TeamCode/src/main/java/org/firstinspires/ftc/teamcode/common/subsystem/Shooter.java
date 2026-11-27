@@ -25,6 +25,8 @@ public class Shooter implements SubsystemLifecycle {
     private final DcMotorEx transferItself;
     private final ServoImplEx valveItself;
     private boolean isRunning = false;
+
+    private boolean transferIsRunning = false;
     static final double COUNTS_PER_MOTOR_REV = 28.0;
     public double r = 0;
     public volatile double valveOpenDegree = 0.736;//计算公式：(目标位置 - 最小值) / 最大值),最小值500，最大值2500。下一行的同理。分别为挡板打开（发射），与关闭（阻止发射）
@@ -133,6 +135,11 @@ public class Shooter implements SubsystemLifecycle {
         transferItself.setPower(0);
     }
 
+    public void setTransferVelocity(@Param("power")double transferRPM) {
+        CommandTasks.checkCancelled();
+        transferIsRunning = true;
+        transferItself.setVelocity(transferRPM / 60.0 * COUNTS_PER_MOTOR_REV);
+    }
     /** Always stop the motor on OpMode shutdown, including after plain direct calls. */
     @Override
     public void onShutdown() {

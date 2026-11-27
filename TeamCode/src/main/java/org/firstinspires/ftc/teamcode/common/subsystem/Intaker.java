@@ -29,10 +29,10 @@ public class Intaker implements SubsystemLifecycle {
     }
 
     @RemoteCommand
-    public void setTargetVelocity(double shooterRPM) {
+    public void setTargetVelocity(@Param("power")double intakerRPM) {
         CommandTasks.checkCancelled();
         isRunning = true;
-        intakerItself.setVelocity(shooterRPM / 60.0 * COUNTS_PER_MOTOR_REV);
+        intakerItself.setVelocity(intakerRPM / 60.0 * COUNTS_PER_MOTOR_REV);
     }
     /** Blocks only its caller; direct aggregate calls naturally wait for completion. */
     @RemoteCommand
