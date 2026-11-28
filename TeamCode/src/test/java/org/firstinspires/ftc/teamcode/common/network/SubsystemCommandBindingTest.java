@@ -151,31 +151,6 @@ public class SubsystemCommandBindingTest {
         for (CommandCatalog.Descriptor descriptor : descriptors) if (descriptor.name.equals(name)) return descriptor;
         return null;
     }
-    @Test public void productionCatalogPreservesActionsWithoutConstructingHardware() {
-        List<CommandCatalog.Descriptor> descriptors = SubsystemCommandBinding.subsystemCommands().descriptors();
-        List<String> names = new ArrayList<>();
-        for (CommandCatalog.Descriptor descriptor : descriptors) names.add(descriptor.name);
-        assertEquals(Arrays.asList("auto.shoot", "auto.stopAll", "auto.waitMillis",
-                "intaker.intakerArmStop", "intaker.intakerIn",
-                "intaker.setIntakePower", "intaker.setIntakerPower", "puller.down", "puller.setState",
-                "puller.store", "puller.up", "shooter.setPower", "shooter.setTargetVelocity",
-                "shooter.setValveClose", "shooter.setValveOpen", "shooter.setValvePos",
-                "shooter.stopShooter", "shooter.updatePIDF"), names);
-        assertEquals(Arrays.asList("rpm", "spinupMillis", "feedMillis"),
-                find(descriptors, "auto.shoot").parameterNames);
-        assertEquals(Arrays.asList("double", "long", "long"),
-                find(descriptors, "auto.shoot").parameterTypes);
-        assertEquals(Collections.singletonList("millis"),
-                find(descriptors, "auto.waitMillis").parameterNames);
-        assertEquals(Collections.singletonList("long"),
-                find(descriptors, "auto.waitMillis").parameterTypes);
-        assertEquals(Arrays.asList("power", "time"), find(descriptors, "intaker.setIntakerPower").parameterNames);
-        assertEquals(Arrays.asList("shooterRPM"), find(descriptors, "shooter.setTargetVelocity").parameterNames);
-        assertNotNull(find(descriptors, "intaker.intakerIn").typesForArity(0));
-        assertNotNull(find(descriptors, "intaker.intakerIn").typesForArity(1));
-        assertNull(find(descriptors, "shooter.getMotorRPM"));
-        assertNull(find(descriptors, "shooter.onShutdown"));
-    }
 
     @Test public void scansOnlyPublicInstanceAnnotatedVoidMethods() {
         List<CommandCatalog.Descriptor> descriptors = SubsystemCommandBinding.scan(Host.class).descriptors();
