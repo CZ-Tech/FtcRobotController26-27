@@ -19,8 +19,8 @@ public class Puller implements SubsystemLifecycle {
     private static final double RIGHT_DOWN = 0.736;
     private static final double LEFT_UP = 0.4136;
     private static final double RIGHT_UP = 0.338;
-    private static final double LEFT_STORE = 0.1652;
-    private static final double RIGHT_STORE = 0.166;
+    private static final double LEFT_STORE = 1;
+    private static final double RIGHT_STORE = 0;
 
     private final ServoImplEx leftKickerServo;
     private final ServoImplEx rightKickerServo;

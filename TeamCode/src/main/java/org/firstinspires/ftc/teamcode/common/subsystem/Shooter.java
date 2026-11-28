@@ -21,8 +21,7 @@ import java.util.Objects;
 public class Shooter implements SubsystemLifecycle {
 
     private final DcMotorEx leftShooterItself;
-    private final DcMotorEx rightShooterItself;
-    private final DcMotorEx transferItself;
+    private final DcMotorEx rightShooterItself;    private final DcMotorEx transferItself;
     private final ServoImplEx valveItself;
     private boolean isRunning = false;
 
